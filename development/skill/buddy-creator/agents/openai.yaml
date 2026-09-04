@@ -1,0 +1,3 @@
+interface:
+  display_name: "Buddy 创作搭子"
+  short_description: "在主对话中完成四阶段搭子创作，同步只读预览并保存本地手册"

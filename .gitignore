@@ -1,0 +1,12 @@
+node_modules/
+.DS_Store
+*.log
+*.tgz
+*.zip
+.buddy/
+.buddy-assistant/
+buddies/
+reports/
+development/dist/
+development/preview-dist/
+development/release/
