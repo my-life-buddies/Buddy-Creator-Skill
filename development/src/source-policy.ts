@@ -1,23 +1,54 @@
+import { extname } from "node:path";
+import { existsSync, statSync } from "node:fs";
 import { check } from "./io.js";
 import { SOURCE_KINDS } from "./rules.js";
 import type { SourceManifest } from "./types.js";
 
+const hostRecovery = "需要识别、转换或提取内容的资料由宿主实际可用的工具处理。将真实结果通过 source_import 的 hostResult 保存；没有可用工具时，请创作者提供可读取的文本。不得自动安装转换程序或把未处理的材料标为已读。";
 export const sourcePolicy = {
-  version: 3,
+  version: 4,
   supportedKinds: SOURCE_KINDS,
-  hostProcessedKinds: ["audio", "video"],
-  mediaRecovery: "音视频由宿主实际可用的工具处理。将真实结果通过 source_import 的 hostResult 保存；没有可用工具时，可由创作者提供转写文件。不得自动安装音视频处理程序或把未处理的材料标为已读。",
+  hostProcessedKinds: ["webpage", "scan", "audio", "video"],
+  hostRecovery,
+  // Compatibility for integrations that read the previous audio/video policy.
+  mediaRecovery: hostRecovery,
   legacyReadOnlyKinds: ["xiaohongshu"],
   recovery: "此版本不再采集小红书账号。可提供本地文件或粘贴原文；根据创作者选择调整来源计划，保留历史材料和确认记录。",
 };
 
+const textExtensions = new Set([
+  ".md", ".markdown", ".txt", ".json", ".jsonl", ".csv", ".tsv",
+  ".yaml", ".yml", ".xml", ".mm", ".opml",
+]);
+const skillTextExtensions = new Set([
+  ...textExtensions, ".py", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".sh", ".css",
+]);
+
+/** Pure text is archived verbatim; this does not extract structure from XML or mind maps. */
+export function isTextSourcePath(uri: string, kind: string = "file"): boolean {
+  const extension = extname(uri).toLowerCase();
+  return (kind === "skill" ? skillTextExtensions : textExtensions).has(extension);
+}
+
+/** Kept for clients that distinguish audio/video presentation from other source kinds. */
 export function isHostMedia(kind: string): boolean {
-  return sourcePolicy.hostProcessedKinds.includes(kind);
+  return kind === "audio" || kind === "video";
+}
+
+export function sourceRequiresHostResult(source: { kind: string; uri?: string }): boolean {
+  if (source.kind === "oral" || source.kind === "xiaohongshu") return false;
+  if (sourcePolicy.hostProcessedKinds.includes(source.kind)) return true;
+  // A selected Skill directory is a text archive. Files with binary formats still need a host result.
+  if (source.kind === "skill" && source.uri && existsSync(source.uri) && statSync(source.uri).isDirectory()) return false;
+  if (source.kind === "skill" && !extname(source.uri ?? "")) return false;
+  return !isTextSourcePath(source.uri ?? "", source.kind);
 }
 
 export function sourceNeedsHostResult(source: SourceManifest): boolean {
-  return isHostMedia(source.kind) && source.status !== "ready" &&
-    (!source.extraction || source.extraction.coverage !== "complete");
+  if (source.status === "ready") return false;
+  if (source.extraction) return source.extraction.coverage !== "complete";
+  const code = (source.errorDetails as { code?: unknown } | undefined)?.code;
+  return code === "HOST_SOURCE_REQUIRED" || sourceRequiresHostResult(source);
 }
 
 export function assertSourceSupported(kind: string) {
@@ -26,9 +57,11 @@ export function assertSourceSupported(kind: string) {
 }
 
 export function assertWebSourceSupported(uri: string) {
-  const url = new URL(uri);
-  check(["http:", "https:"].includes(url.protocol), "URL_PROTOCOL", "网页来源仅支持 HTTP(S)。");
-  const hostname = url.hostname.toLowerCase().replace(/\.$/, "");
+  let url: URL;
+  try { url = new URL(uri); }
+  catch { check(false, "URL_PROTOCOL", "网页来源需要有效的 HTTP(S) 网址。"); }
+  check(["http:", "https:"].includes(url!.protocol), "URL_PROTOCOL", "网页来源仅支持 HTTP(S)。");
+  const hostname = url!.hostname.toLowerCase().replace(/\.$/, "");
   check(!["xiaohongshu.com", "xhslink.com"].some((domain) => hostname === domain || hostname.endsWith(`.${domain}`)),
     "SOURCE_UNSUPPORTED", sourcePolicy.recovery);
 }
@@ -37,8 +70,8 @@ export function assertWebSourceSupported(uri: string) {
 export function sourceView(source: SourceManifest): SourceManifest {
   if (sourceNeedsHostResult(source)) return {
     ...source, status: "failed",
-    error: source.extraction ? "宿主仅提供了部分音视频结果，已保存，但尚未完整处理。" : sourcePolicy.mediaRecovery,
-    errorDetails: { code: source.extraction ? "HOST_MEDIA_INCOMPLETE" : "HOST_MEDIA_REQUIRED", originalStatus: source.status },
+    error: source.extraction?.coverage === "partial" ? "宿主仅提供了部分资料结果，已保留，但尚未完整处理。" : sourcePolicy.hostRecovery,
+    errorDetails: { code: source.extraction?.coverage === "partial" ? "HOST_SOURCE_INCOMPLETE" : "HOST_SOURCE_REQUIRED", originalStatus: source.status },
     warnings: [...source.warnings, "请使用宿主工具补齐结果，以新的 operationId 导入；旧资料与确认记录保留。"],
   };
   if (source.kind !== "xiaohongshu" || source.status === "ready") return source;

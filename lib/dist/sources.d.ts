@@ -8,14 +8,16 @@ export type SourceRequest = {
     text?: string;
     locale?: string;
     limit?: number;
-    hostResult?: HostMediaResult;
+    hostResult?: HostSourceResult;
 };
-export type HostMediaResult = {
+export type HostSourceResult = {
     tool: string;
     parts: Part[];
     coverage: "complete" | "partial";
     notes?: string[];
 };
+/** Backward-compatible request shape for the previous media-only entry point. */
+export type HostMediaResult = HostSourceResult;
 export type Part = {
     text: string;
     locator: string;
@@ -23,7 +25,7 @@ export type Part = {
 export declare function run(program: string, args: string[], timeout?: number): Promise<string>;
 export declare function chunkParts(parts: Part[]): SourceManifest["chunks"];
 export declare function parseHistory(text: string): Part[];
-export declare function nativeMedia(store: Store, command: "ocr", path: string): Promise<Part[]>;
+/** Compatibility entry point: webpage extraction now belongs to the host, with no implicit fetch. */
 export declare function readableWeb(url: string): Promise<{
     parts: Part[];
     original: Buffer;

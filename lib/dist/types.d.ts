@@ -64,6 +64,13 @@ export type Delivery = {
     inputId?: string;
 };
 export type SourceKind = "file" | "webpage" | "xiaohongshu" | "history" | "mindmap" | "skill" | "oral" | "scan" | "audio" | "video";
+/** Host extraction metadata; archived sources from earlier versions may omit it. */
+export type HostSourceExtraction = {
+    provider: "host";
+    tool: string;
+    coverage: "complete" | "partial";
+    notes?: string[];
+};
 export type SourceManifest = {
     id: string;
     version: string;
@@ -89,12 +96,7 @@ export type SourceManifest = {
     attempt: number;
     warnings: string[];
     parser: string;
-    extraction?: {
-        provider: "host";
-        tool: string;
-        coverage: "complete" | "partial";
-        notes?: string[];
-    };
+    extraction?: HostSourceExtraction;
     processing?: {
         acquisition: "queued" | "running" | "complete" | "partial" | "failed";
         parsing: "not_started" | "running" | "complete" | "partial" | "failed";

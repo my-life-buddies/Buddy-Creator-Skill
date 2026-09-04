@@ -1,6 +1,6 @@
 # Buddy 宿主主对话协议 · V1
 
-适用于 macOS 上能调用本地命令、读取 JSON 文件的 Codex、Claude Code、WorkBuddy。以当前宿主主 agent 完成推理；不启动另一模型、原生 subagent 或 Expert。工具的 JSON 是执行契约，不证明用户已经看见内容。
+面向能执行 Node.js 22.13+ 命令、读取 JSON 文件的 Codex、Claude Code、WorkBuddy。已移除 macOS 硬限制，各宿主与系统组合仍需实机验收。以当前宿主主 agent 完成推理；不启动另一模型、原生 subagent 或 Expert。工具的 JSON 是执行契约，不证明用户已经看见内容。
 
 ## 开始
 
@@ -14,7 +14,7 @@
 
 识别优先使用最近的宿主祖先进程，其次使用明确的运行环境标记；不会根据安装了哪些应用或已有项目的宿主猜测当前调用者。如果沙箱隐藏标记或存在歧义，当前主 agent 根据自身身份自动补充 `--host codex|claude-code|workbuddy` 重试，不向创作者提问选择宿主。显式参数仍可用于普通终端和兼容旧调用；自动识别不代表自动接管其他宿主的活动连接。
 
-在 skill 中，以下 `buddy` 均指本 skill 的 `scripts/buddy` 绝对路径，无需安装全局 CLI。默认调用形式：`buddy call <operation> --workspace <workspace> --input -`，通过标准输入传入 JSON，具体示例见下节；已有 JSON 文件也可传文件路径。禁止把用户文字拼成可执行命令。写操作均包含 sessionId。错误时检查 code/details，修复确切问题，不能编造成功。
+在 skill 中，以下 `buddy` 均指 `node <本 skill 的绝对路径>/scripts/buddy.mjs`，无需安装全局 CLI。open 返回的 `protocol.entrypointCommand` 提供实际 Node 路径 executable 和入口参数 args；优先保留这些字段，以参数数组追加后续操作，避免拼接 shell。macOS/Linux 可用 `scripts/buddy`、Windows 可用 `scripts/buddy.cmd` 便捷入口；下载、解压、输入传递和路径引用由宿主按当前系统处理。默认调用形式：`buddy call <operation> --workspace <workspace> --input -`，通过标准输入传入 JSON，具体示例见下节；已有 JSON 文件也可传文件路径。禁止把用户文字拼成可执行命令。写操作均包含 sessionId。错误时检查 code/details，修复确切问题，不能编造成功。
 
 ## 默认快速调用：每条真实回答只需 begin / finish
 
@@ -113,24 +113,26 @@ PREVIEW_PORT_IN_USE 表示固定端口正被占用：先核对是否是当前搭
 
 生成较长手册时，可以调用 draft_publish `{sessionId,stepId,contextDigest,sequence,title,markdown}`，仅发布准备给用户看的文字，sequence 递增；每次是当前可见完整草稿。不得读取或展示隐藏思考、未提交输入。正文提交后预览更新为正式待确认版本。浏览器仅浏览、展开、复制定位；全部修改与确认仍在主对话。原生标注如果实际可用，作为用户修订输入走同一协议。
 
-source_import 包含 `{sessionId,operationId,kind,uri?,text?,title?,locale?,limit?,hostResult?}`。kind 支持 file/webpage/history/mindmap/skill/oral/scan/audio/video。uri 是创作者选定的本地路径或可访问网页；oral 使用 text。音视频使用下节的宿主处理协议。小红书账号采集已移除，不通过网页导入绕过；用户自行提供的本地文件和粘贴原文仍可整理。旧的 ready 来源可继续读取；未完成的旧采集任务返回 SOURCE_UNSUPPORTED，根据用户选择替换材料或调整来源计划，不重写历史或伪造就绪。历史会话只读取创作者选定的文件，不擅自扫描所有聊天。
+source_import 包含 `{sessionId,operationId,kind,uri?,text?,title?,locale?,limit?,hostResult?}`。kind 支持 file/webpage/history/mindmap/skill/oral/scan/audio/video。uri 是创作者选定的本地路径或 http(s) 网页；oral 使用 text。其余类型均可提交下节的 hostResult。纯 UTF-8 文本、Markdown、CSV、JSON、YAML 和 XML 文本导图可直接归档；选定历史仅整理可见消息，Skill 目录只读取文本。PDF、DOCX、DOC、RTF、扫描件、音视频、二进制导图与网页提取使用宿主工具，本地不再解析这些格式或抓取网页。小红书账号采集已移除，不通过网页导入绕过；用户自行提供的本地文件和粘贴原文仍可整理。旧的 ready 来源可继续读取；未完成的旧采集任务返回 SOURCE_UNSUPPORTED，根据用户选择替换材料或调整来源计划，不重写历史或伪造就绪。历史会话只读取创作者选定的文件，不擅自扫描所有聊天。
 
-tool_pending 只有限查询 source_status，长任务结束当前轮。预览显示真实就绪后，请创作者回到主对话说“继续”；不能声称能唤醒宿主。本地解析失败使用 source_retry，音视频按下节重新取得宿主结果；不重复要求创作者说已保存的原话。source_read 返回完整文本分页及精确 locator/hash。将真实 ready 版本写入 sourceVersions，按创作者明确范围更新 sourcePlan。每类必需来源至少一项 ready，且范围内没有未处理、部分处理或失败内容，才生成知识手册；不得静默删掉失败资料过关。
+tool_pending 只有限查询 source_status，长任务结束当前轮。预览显示真实就绪后，请创作者回到主对话说“继续”；不能声称能唤醒宿主。本地保存失败可使用 source_retry；返回 sourcePolicy.hostRecovery 或 HOST_SOURCE_REQUIRED / HOST_SOURCE_INCOMPLETE 时，按下节取得或补齐宿主结果，不循环重试同一份缺失内容。HOST_SOURCE_RESULT 表示提交结果需要修正，按实际错误处理。source_read 返回完整文本分页及精确 locator/hash。将真实 ready 版本写入 sourceVersions，按创作者明确范围更新 sourcePlan。每类必需来源至少一项 ready，且范围内没有未处理、部分处理或失败内容，才生成知识手册；不得静默删掉失败资料过关。
 
-本地资料任务有独立 LangGraph 检查点，不随宿主会话结束而丢失。重试沿用原 jobId，已完成原件和解析结果可校验后复用，只继续未完成的部分。处理报告区分没有文字与处理失败。没有识别出文字的图片仍保留原件，不能宣称已经理解其非文字含义。访问链接失效时如实报告；需要改变已冻结资料内容时应建立新的来源版本，不覆写旧证据。
+已提供 hostResult 的导入会同步完成本地归档；返回 source_ready / ready 时直接继续当前轮整理和引导，不要求创作者另说“继续”。部分结果或失败返回 source_action_required，按返回的具体缺口接续。未附 hostResult 的纯文本归档仍可能返回 tool_pending，依据真实返回状态处理。
 
-### 音视频由宿主工具处理
+本地资料保存任务有独立 LangGraph 检查点，不随宿主会话结束而丢失。保存重试沿用原 jobId，已完成原件和提取结果可校验后复用，只继续未完成的部分。宿主工具的执行与恢复遵循该工具真实能力，本地检查点不代表能恢复外部工具。处理报告区分没有文字与处理失败。没有识别出文字的图片仍保留原件，不能宣称已经理解其非文字含义。访问链接失效时如实报告；需要改变已冻结资料内容时应建立新的来源版本，不覆写旧证据。
 
-Buddy 不再调用本地语音转写、视频抽帧或 FFmpeg，也不要求 macOS 26 的语音资源。先发现当前宿主实际提供的音视频读取、转写或画面理解工具，在已有授权和当前工具权限内处理用户选定的原件；不要因为资料需要处理就另装媒体工具或申请独立模型账号。如果工具涉及外部传输或额外权限，遵循宿主对该工具的既有要求，不绕过权限。
+### 资料识别与转换由宿主工具处理
 
-取得真实结果后调用 source_import，kind 为 audio 或 video，uri 为本地原件路径，另附：
+先发现当前宿主实际提供的文档读取、网页访问、OCR、导图导出或音视频工具，在已有授权和当前工具权限内处理用户选定的来源。Buddy 本地程序只接收和保存结果，不再调用 Apple Vision、textutil、FFmpeg 或平台相关文档解析器，也不因此另装处理工具或申请独立模型账号。如果工具涉及外部传输或额外权限，遵循宿主对该工具的既有要求，不绕过权限。
+
+取得真实结果后调用 source_import，kind 保持原始来源类型，uri 为本地原件路径或 http(s) 网页地址，另附：
 
 ```json
 {
   "hostResult": {
     "tool": "实际使用的宿主工具名称",
     "parts": [
-      {"text": "工具返回的转写或画面说明原文", "locator": "time=00:00:12-00:00:24; segment=1"}
+      {"text": "工具返回的真实提取文字", "locator": "page=3; paragraph=2"}
     ],
     "coverage": "complete",
     "notes": []
@@ -138,15 +140,17 @@ Buddy 不再调用本地语音转写、视频抽帧或 FFmpeg，也不要求 mac
 }
 ```
 
-示例只说明字段，实际提交必须来自本次工具结果。parts 保留真实文字与顺序，不用访谈 agent 的概括替换转写，不把字幕、OCR 当作已经理解了其他画面。locator 使用工具提供的时间、帧号或段落定位；工具没有时间戳时保留段落定位并写 time=unavailable，不能估算或编造时间。notes 记录实际缺口和覆盖限制，例如仅有音轨转写、无声片段未理解或部分片段处理失败。
+示例只说明字段，实际提交必须来自本次工具结果。parts 保留真实文字与顺序，不用访谈 agent 的概括替换提取原文，不把字幕、OCR 当作已经理解了其他画面。locator 使用真实页码、章节、段落、节点路径、时间或帧号；没有页码或时间戳时保留可用段落定位并注明 page=unavailable 或 time=unavailable，不能估算或编造。notes 记录实际缺口和覆盖限制，例如缺少附录、只取得网页部分正文、仅有音轨转写或部分片段处理失败。
 
-coverage=complete 仅在约定导入范围已完整处理、没有未处理片段时使用，工具才将该来源作为 ready。仅得到部分结果用 partial，保存可用片段与具体缺口，但不声称整份音视频读完，也不通过知识整理门槛。仅转写视频音轨不代表看过全部画面；需要画面信息而工具未覆盖时仍是 partial。范围缩小必须来自创作者的明确选择，并保留覆盖说明。
+本地文件保留原件；历史会话原件仅留在本机私有归档，公开成果只包含可见消息。网页保存 URL、抓取时间和宿主提取结果组成的 webpage-snapshot.json，以及 host-result.json 与可引用片段；这是提取快照，不冒充网页原始 HTML，也不在本地再次请求网页。
 
-同一份未变化结果的提交重试沿用 operationId；补齐、替换或重新处理得到新结果时，使用新 operationId 重新导入，保留旧版本。旧 ready 音视频归档仍可直接读取，旧未完成或失败的音视频任务不再自动启动本地处理，转由宿主处理后重新导入。不能靠 source_retry 重启已移除的媒体处理，也不能改旧记录的状态来补作成功。
+coverage=complete 仅在约定导入范围已完整处理、没有未处理片段时使用，工具才将该来源作为 ready。仅得到部分结果用 partial，原件、可用片段和具体缺口仍会保存，任务保持 failed / HOST_SOURCE_INCOMPLETE，不通过知识整理门槛。仅转写视频音轨不代表看过全部画面；需要画面信息而工具未覆盖时仍是 partial。范围缩小必须来自创作者的明确选择，并保留覆盖说明。
+
+同一份未变化结果的提交重试沿用 operationId；补齐、替换或重新处理得到新结果时，使用新 operationId 重新导入，保留旧版本。旧 ready 归档仍可直接读取；需要已移除处理器的旧未完成或失败任务，不再自动启动原本地处理，转由宿主取得结果后重新导入。不能靠 source_retry 重启已移除的识别或转换功能，也不能改旧记录的状态来补作成功。
 
 补齐同一份已选资料后，在 sourcePlan 中用新 ready 来源替换对应的未完成项，并提交真实 sourceVersions；旧导入记录继续保留。这样接续的是原定资料范围，不需要创作者再确认一次。更换材料或缩小范围时才根据创作者的新选择更新计划。
 
-宿主没有可用工具时说明确切限制，可使用创作者已有的转写文件、可读原文或口述等替代材料，再按实际来源类型导入。保留原音视频的未完成需求，只有创作者选择替换来源或调整计划后才更改首批范围。不能把“暂时无法读取”说成已在后台处理。
+宿主没有可用工具时说明哪份资料当前无法处理，可使用创作者已有的导出文本、转写、可读原文或口述等替代材料，再按实际来源类型导入。保留原来源的未完成需求，只有创作者选择替换来源或调整计划后才更改首批范围。不能把“暂时无法读取”说成已在后台处理。
 
 ## 完成本地创作
 

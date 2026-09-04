@@ -3,8 +3,6 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createServer } from "node:http";
-import { once } from "node:events";
 import { openWorkspace } from "../src/store.js";
 import { enqueueSource, processSource, readableWeb } from "../src/sources.js";
 import { sourceView } from "../src/source-policy.js";
@@ -24,13 +22,26 @@ test("account collection and generic-web bypass are rejected, while pasted mater
   const pasted = enqueueSource(store, { operationId: "paste", kind: "oral", text: "这是我自行提供的笔记原文，用来整理已有写作经验。" });
   assert.equal((await processSource(store, pasted.id)).status, "ready");
 });
-test("redirects cannot re-enable removed web collection", async (t) => {
-  const server = createServer((_req, res) => { res.writeHead(302, { location: "https://www.xiaohongshu.com/user/profile/example" }); res.end(); });
-  server.listen(0, "127.0.0.1");
-  await once(server, "listening");
-  t.after(() => { server.closeAllConnections(); server.close(); });
-  const port = (server.address() as import("node:net").AddressInfo).port;
-  await assert.rejects(readableWeb(`http://127.0.0.1:${port}/`), unsupported);
+test("webpages require recorded host results and removed domains stay blocked", async (t) => {
+  const store = await workspace(t);
+  const hostRequired = (error: unknown) => error instanceof BuddyError && error.code === "HOST_SOURCE_REQUIRED";
+  const hostResult = { tool: "fixture-browser-reader", coverage: "complete" as const,
+    parts: [{ text: "创作者已选择的网页内容，由宿主工具实际读取并提供。", locator: "url=https://example.com/article;paragraph=1" }] };
+  assert.throws(() => enqueueSource(store, { operationId: "no-host", kind: "webpage", uri: "https://example.com/article" }), hostRequired);
+  await assert.rejects(readableWeb("https://example.com/article"), hostRequired);
+  for (const uri of ["https://www.xiaohongshu.com/explore/example", "https://xhslink.com/example"])
+    assert.throws(() => enqueueSource(store, { operationId: "blocked-host", kind: "webpage", uri, hostResult }), unsupported);
+  const source = enqueueSource(store, { operationId: "web-host", kind: "webpage", uri: "https://example.com/article", hostResult });
+  const archived = await processSource(store, source.id);
+  assert.equal(archived.status, "ready");
+  assert.equal(archived.parser, "host-webpage-snapshot-v1");
+  assert.ok(!archived.files.some((file) => file.path.endsWith(".html")));
+  const file = archived.files.find((asset) => asset.path.endsWith("/webpage-snapshot.json"));
+  assert.ok(file);
+  const snapshot = JSON.parse(readFileSync(store.path(file.path), "utf8"));
+  assert.equal(snapshot.archiveKind, "host-extracted-snapshot");
+  assert.equal(snapshot.url, "https://example.com/article");
+  assert.deepEqual(snapshot.hostResult, hostResult);
 });
 test("unfinished legacy jobs remain immutable and cannot run or resume", async (t) => {
   const store = await workspace(t);

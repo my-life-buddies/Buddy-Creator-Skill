@@ -68,6 +68,12 @@ export function optional<T>(path: string): T | undefined {
   return existsSync(path) ? read<T>(path) : undefined;
 }
 export function syncDir(path: string) {
+  if (process.platform === "win32") {
+    // Node cannot fsync a Windows directory handle. File fsync and atomic rename
+    // still run; do not claim the same directory-entry power-loss durability.
+    check(statSync(path).isDirectory(), "DIRECTORY_REQUIRED", "保存目录无效。");
+    return;
+  }
   const fd = openSync(path, "r");
   try {
     fsyncSync(fd);

@@ -1,6 +1,6 @@
 {
   "name": "@buddy-creator/assistant",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Buddy creator skill with host-led interviews, durable local projects and live read-only preview",
   "type": "module",
   "bin": {
@@ -9,15 +9,11 @@
   "engines": {
     "node": ">=22.13"
   },
-  "os": [
-    "darwin"
-  ],
   "files": [
     "dist",
     "preview-dist",
     "rules",
     "integrations",
-    "native",
     "README.md",
     "RELEASE_NOTES.md",
     "THIRD_PARTY_NOTICES.md"
@@ -33,17 +29,7 @@
   "dependencies": {
     "@langchain/langgraph": "1.4.13",
     "@langchain/langgraph-checkpoint": "1.1.5",
-    "@mozilla/readability": "^0.6.0",
-    "@phosphor-icons/react": "^2.1.10",
-    "fast-xml-parser": "^5.2.5",
     "fflate": "^0.8.2",
-    "linkedom": "^0.18.12",
-    "mammoth": "^1.10.0",
-    "pdfjs-dist": "6.2.108",
-    "react": "^19.1.1",
-    "react-dom": "^19.1.1",
-    "react-markdown": "^10.1.0",
-    "remark-gfm": "^4.0.1",
     "zod": "^4.1.0"
   },
   "devDependencies": {
@@ -53,6 +39,11 @@
     "tsx": "^4.20.0",
     "typescript": "^5.9.3",
     "vite": "^7.1.0",
-    "xstate": "^5.23.0"
+    "xstate": "^5.23.0",
+    "@phosphor-icons/react": "^2.1.10",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1"
   }
 }

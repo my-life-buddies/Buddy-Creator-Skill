@@ -3,11 +3,19 @@ export declare const sourcePolicy: {
     version: number;
     supportedKinds: readonly ["file", "webpage", "history", "mindmap", "skill", "oral", "scan", "audio", "video"];
     hostProcessedKinds: string[];
+    hostRecovery: string;
     mediaRecovery: string;
     legacyReadOnlyKinds: string[];
     recovery: string;
 };
+/** Pure text is archived verbatim; this does not extract structure from XML or mind maps. */
+export declare function isTextSourcePath(uri: string, kind?: string): boolean;
+/** Kept for clients that distinguish audio/video presentation from other source kinds. */
 export declare function isHostMedia(kind: string): boolean;
+export declare function sourceRequiresHostResult(source: {
+    kind: string;
+    uri?: string;
+}): boolean;
 export declare function sourceNeedsHostResult(source: SourceManifest): boolean;
 export declare function assertSourceSupported(kind: string): void;
 export declare function assertWebSourceSupported(uri: string): void;

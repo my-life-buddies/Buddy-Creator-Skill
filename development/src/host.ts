@@ -13,13 +13,15 @@ const hosts: Host[] = ["codex", "claude-code", "workbuddy"];
 // Read executable names only; command arguments can contain private user input.
 export function ancestorExecutables(): string[] {
   const names: string[] = [];
+  // Windows hosts supply their identity through the environment or --host.
+  if (process.platform === "win32") return names;
   const visited = new Set<number>();
   const deadline = Date.now() + 1500;
   let pid = process.ppid;
   while (pid > 1 && names.length < 16 && !visited.has(pid) && Date.now() < deadline) {
     visited.add(pid);
     try {
-      const line = execFileSync("/bin/ps", ["-p", String(pid), "-o", "ppid=", "-o", "comm="], {
+      const line = execFileSync("ps", ["-p", String(pid), "-o", "ppid=", "-o", "comm="], {
         encoding: "utf8", timeout: 200, maxBuffer: 16384,
         stdio: ["ignore", "pipe", "ignore"],
       }).trim();
@@ -35,7 +37,8 @@ export function ancestorExecutables(): string[] {
 }
 
 function executableHost(executable: string): Host | undefined {
-  const name = basename(executable).toLowerCase();
+  executable = executable.replaceAll("\\", "/");
+  const name = basename(executable).toLowerCase().replace(/\.exe$/, "");
   if (name === "claude" || name === "claude-code" || /\/claude\/versions\/[^/]+$/.test(executable)) return "claude-code";
   if (name === "codex" || name.startsWith("codex-") && /^codex-(?:aarch64|x86_64)-/.test(name)) return "codex";
   if (/\/WorkBuddy\.app\/Contents\//i.test(executable) || /^workbuddy(?: helper(?: \([^)]+\))?)?$/i.test(name)) return "workbuddy";

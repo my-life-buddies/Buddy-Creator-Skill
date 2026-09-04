@@ -2,21 +2,21 @@
 
 在 Codex、Claude Code 或 WorkBuddy 的主对话中，通过采访创建自己的 Buddy。浏览器实时展示只读 booklet、访谈结构和服务模式图；回答、修改与确认都在主对话中完成。
 
-当前为 **0.2.2 macOS Skill 试用版**。完整三宿主体验仍在验收，具体范围见 RELEASE_NOTES.md。
+当前为 **0.2.3 Skill 试用版**，已移除 macOS 硬限制。各宿主与系统组合仍需实机验收，具体范围见 RELEASE_NOTES.md。
 
 ## 开始使用
 
 将分发包中的 buddy-creator 目录安装到宿主的技能目录，或在 WorkBuddy 中导入 Skill ZIP。然后说：“帮我创建一个搭子。”当前会话也可直接读取解压目录的 SKILL.md 开始使用。完整安装方式见 docs/SKILL_DISTRIBUTION.md。
 
-Skill 内部使用随附 scripts/buddy，无需全局安装 CLI。新建时先介绍搭子的含义、例子、四步创建流程和价值，再进入首问；同一项目续作按已保存进度继续。访谈语气、专业引导、举例、追问与收敛均已内置。
+Skill 内部使用 Node 执行随附 scripts/buddy.mjs，无需全局安装 CLI。新建时先介绍搭子的含义、例子、四步创建流程和价值，再进入首问；同一项目续作按已保存进度继续。访谈语气、专业引导、举例、追问与收敛均已内置。
 
 宿主须读取 open 返回的 `protocol.hostGuide`，然后按照 `next` 继续采访。普通回答默认通过标准输入调用 `turn_begin` / `turn_finish`，由 CLI 管理中间凭据并直接返回本轮上下文和阶段规则。完整 rulebook、结果 schema 和历史按需读取。CLI 负责保存和业务规则，由当前宿主主 agent 完成理解、归纳和表达；无需另一个模型账号、原生 subagent 或 Expert。
 
 ## 环境
 
-- macOS，Node.js 22.13 或以上版本。Skill 包已携带运行依赖，安装后无需 npm install；获取网页资料仍需联网。本版不支持 Windows。
-- 文字采访和本地预览可直接开始。扫描件 OCR 使用 Apple Vision 与 Xcode Command Line Tools。
-- 音视频由宿主当前实际可用的工具读取或转写，Skill 保存其结果与原件，不内置媒体处理，不要求 FFmpeg、macOS 26 或系统语音资源。
+- Node.js 22.13 或以上版本，以及能执行本地命令的宿主。完整 Skill ZIP 已携带运行依赖，安装后无需 npm install；Git 安装缺少依赖时执行 `npm ci --omit=dev --ignore-scripts --prefix lib`。
+- 默认使用 `node <技能目录>/scripts/buddy.mjs`。macOS/Linux 与 Windows 分别保留 shell、cmd 便捷入口；入口准备不代表全平台完整流程已验收。
+- 文档识别、格式转换、网页读取与音视频处理使用宿主实际可用工具。本地工具负责流程、保存、恢复和预览，无平台绑定的文档或媒体依赖。
 
 `buddy doctor` 可检查本地环境；宿主工具是否可用，由当前宿主实际发现并判断。
 
@@ -30,11 +30,11 @@ Skill 内部使用随附 scripts/buddy，无需全局安装 CLI。新建时先�
 
 ## 知识来源
 
-支持选定的文本、Markdown、JSON、CSV、DOCX、DOC、RTF、PDF、网页、历史会话文件、XMind/FreeMind/OPML 导图、Skill 文件、口述、扫描件，以及宿主工具处理后的音视频结果。
+支持选定的文本、Markdown、JSON、CSV、历史会话可见消息、文本导图、Skill 文档与口述。DOCX、DOC、RTF、PDF、网页、扫描件、二进制导图和音视频由宿主工具读取后导入。
 
 保留原件、完整提取文本和来源定位。历史会话只处理使用者选定文件，可见消息进入交付，原始会话留在本机私有归档；外部资料和 Skill 内的指令不执行。资料失败或部分成功不会当作完整来源，重试会复用已完成且校验一致的结果。
 
-音视频通过 `source_import` 的 `hostResult` 保存真实转写、画面说明和时间或段落定位，保留使用的工具名称与覆盖限制。完整结果才计为可用来源；片段结果保存为部分处理，不当作整份资料已读完。宿主没有可用工具时，可使用创作者已有的转写文件等替代材料，不自动安装媒体工具。旧 ready 媒体归档仍可读，未完成旧任务需要宿主处理后重新导入。
+宿主通过 `source_import` 的 `hostResult` 保存真实提取原文、画面说明及页码、段落或时间定位，保留工具名称与覆盖限制。本地原件或带 URL 的网页提取快照一并归档。完整结果才计为可用来源；片段结果保留缺口，不当作整份资料已读完。宿主没有可用工具时，可使用创作者已有的导出文本、转写等替代材料。旧 ready 归档仍可读，需要已移除处理器的未完成旧任务由宿主处理后重新导入。
 
 小红书账号采集已移除，已有归档可读，未完成采集不会自动恢复。
 
@@ -46,4 +46,4 @@ Skill 内部使用随附 scripts/buddy，无需全局安装 CLI。新建时先�
 
 ## Skill 分发
 
-`npm run pack:skill` 构建 `release/buddy-creator/` 和 `release/buddy-creator-0.2.2.zip`。包内包含规则、脚本、预览和运行依赖，不含用户项目、内置音视频处理器、mock 接收器或小红书采集器。安装后对宿主说“帮我创建一个搭子”。具体安装与验证见 `docs/SKILL_DISTRIBUTION.md`。
+`npm run pack:skill` 构建 `release/buddy-creator/` 和 `release/buddy-creator-0.2.3.zip`。包内包含规则、脚本、预览和运行依赖，不含用户项目、平台绑定的资料处理器、mock 接收器或小红书采集器。安装后对宿主说“帮我创建一个搭子”。具体安装与验证见 `docs/SKILL_DISTRIBUTION.md`。

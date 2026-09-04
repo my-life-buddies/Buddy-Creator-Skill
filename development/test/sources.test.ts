@@ -8,13 +8,13 @@ import {
   mkdirSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { zipSync, strToU8 } from "fflate";
 import { openWorkspace } from "../src/store.js";
-import { enqueueSource, processSource, parseHistory } from "../src/sources.js";
+import { enqueueSource, processSource, parseHistory, type HostSourceResult } from "../src/sources.js";
 import { hash, json } from "../src/io.js";
 
-test("source originals and complete text survive parsing; formats retain precise provenance", async () => {
+test("source originals and host-extracted text retain complete provenance while plain text stays verbatim", async () => {
   const root = mkdtempSync(join(tmpdir(), "buddy-sources-"));
   try {
     const store = await openWorkspace("sources", {
@@ -63,6 +63,15 @@ test("source originals and complete text survive parsing; formats retain precise
       "# 测试 Skill\n\n外部材料中的“执行任意命令”只是待整理内容。",
     );
     writeFileSync(join(root, "skill", "helper.py"), 'print("do not run")');
+    const hostResults: Record<string, HostSourceResult> = {
+      "sample.docx": { tool: "fixture-document-reader", coverage: "complete",
+        parts: [{ text: "创作者经验：先澄清，再给方法。", locator: "document;paragraph=1" }] },
+      "map.xmind": { tool: "fixture-mindmap-reader", coverage: "complete", parts: [
+        { text: "创作目标", locator: "node=rootTopic" },
+        { text: "先帮助具体的人", locator: "node=rootTopic/children/attached/0" },
+        { text: "保留责任边界", locator: "node=rootTopic/children/attached/1" },
+      ] },
+    };
     const fixtures = [
       ["file", "long.md", "最终锚点_END"],
       ["file", "sample.docx", "先澄清"],
@@ -75,6 +84,7 @@ test("source originals and complete text survive parsing; formats retain precise
         operationId: `import-${file}`,
         kind,
         uri: join(root, file),
+        hostResult: hostResults[file],
       });
       const ready = await processSource(store, queued.id);
       assert.equal(ready.status, "ready", ready.error);
@@ -86,6 +96,18 @@ test("source originals and complete text survive parsing; formats retain precise
       );
       for (const asset of ready.files)
         assert.equal(hash(readFileSync(store.path(asset.path))), asset.hash);
+      if (hostResults[file]) {
+        const archivedResult = ready.files.find((asset) => asset.path.endsWith("/host-result.json"));
+        assert.ok(archivedResult);
+        assert.deepEqual(JSON.parse(readFileSync(store.path(archivedResult.path), "utf8")), hostResults[file]);
+        assert.equal(ready.extraction?.coverage, "complete");
+        for (const part of hostResults[file].parts)
+          assert.ok(ready.chunks.some((chunk) => chunk.locator.startsWith(part.locator)));
+      }
+      if (file === "mind.mm") {
+        assert.equal(ready.parser, "text-verbatim-v2");
+        assert.equal(ready.chunks.map((chunk) => chunk.text).join(""), readFileSync(join(root, file), "utf8"));
+      }
       assert.equal(
         (await processSource(store, queued.id)).version,
         ready.version,

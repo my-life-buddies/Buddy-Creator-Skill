@@ -215,7 +215,7 @@ export class Workflow {
         directive: "source_action_required", sourceIds: failed.map((s) => s.id),
         sources: failed,
         message: failed.map((s) => s.error ?? "资料未能完整处理。").join("\n"),
-        recovery: "按每项来源的错误恢复：宿主音视频结果不完整时使用宿主工具补齐，以新的 operationId 导入；其他工具失败处理原因后 source_retry。来源计划的范围变更由创作者决定，再用 interview 保存；不要宣称失败任务正在运行。",
+        recovery: "按每项来源的错误恢复：宿主资料结果缺失或不完整时补齐后以新的 operationId 导入；本地归档失败处理原因后 source_retry；已移除的小红书采集改按创作者选择提供可读资料。来源计划的范围变更由创作者决定，再用 interview 保存；不要宣称失败任务正在运行。",
       };
       if (waiting.length)
         return {

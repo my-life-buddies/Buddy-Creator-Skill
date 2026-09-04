@@ -2,7 +2,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statS
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
+import { zipSync } from 'fflate';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
@@ -15,7 +15,7 @@ mkdirSync(output, { recursive: true });
 cpSync(join(root, 'skill/buddy-creator'), output, { recursive: true });
 const lib = join(output, 'lib');
 mkdirSync(lib);
-for (const name of ['dist', 'rules', 'integrations', 'native', 'THIRD_PARTY_NOTICES.md'])
+for (const name of ['dist', 'rules', 'integrations', 'THIRD_PARTY_NOTICES.md'])
   cpSync(join(root, name), join(lib, name), { recursive: true });
 // Compatibility-only discovery is not part of the delivered skill's instructions.
 rmSync(join(lib, 'integrations/SKILL.md'));
@@ -47,6 +47,8 @@ function copyDependency(name, from, optional = false) {
   const key = relative(root, directory).split(sep).join('/');
   if (!key.startsWith('node_modules/')) throw new Error(`Dependency outside build root: ${key}`);
   const dep = JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8'));
+  if (dep.os?.length || dep.cpu?.length || dep.gypfile)
+    throw new Error(`Platform-bound production dependency cannot be bundled: ${name}`);
   if (lock.packages[key]?.version !== dep.version) throw new Error(`Lock mismatch: ${name}@${dep.version}`);
   cpSync(directory, join(lib, key), { recursive: true, filter: (path) =>
     path === directory || !relative(directory, path).split(sep).some((part) => ['node_modules', '.git', '.DS_Store'].includes(part)) });
@@ -84,16 +86,24 @@ function walk(directory) {
   }
 }
 walk(output);
-for (const file of files) if (/\/(?:mock-coding-cli|coding-handoff|xiaohongshu)\.(?:js|d\.ts)$/.test(file.path)) throw new Error(`Removed capability in package: ${file.path}`);
-const manifest = { name: 'buddy-creator', version: pkg.version, formatVersion: 1, platform: 'darwin', buildArchitecture: process.arch,
+for (const file of files) {
+  if (/\/(?:mock-coding-cli|coding-handoff|xiaohongshu)\.(?:js|d\.ts)$/.test(file.path) || file.path.startsWith('lib/native/'))
+    throw new Error(`Removed capability in package: ${file.path}`);
+  if (/\.(?:node|dylib|dll|so)$/i.test(file.path)) throw new Error(`Native binary cannot be bundled: ${file.path}`);
+}
+const manifest = { name: 'buddy-creator', version: pkg.version, formatVersion: 1, platform: 'node', architecture: 'portable-javascript',
   node: '>=22.13', model: 'host-main-agent', workflow: 'langgraph-sqlite-1', completion: 'local-deliverables',
-  mediaProcessing: 'host-tools', bundledMediaProcessing: false, optionalLocalOcr: 'apple-vision',
+  entrypoint: 'scripts/buddy.mjs', sourceProcessing: 'host-tools', bundledNativeProcessing: false,
   missingOptionalDependencies: [...missingOptional].sort(), files };
 writeFileSync(join(output, 'skill-manifest.json'), JSON.stringify(manifest, null, 2)+'\n');
 const archive = join(release, `buddy-creator-${pkg.version}.zip`);
 rmSync(archive, { force: true });
-execFileSync('/usr/bin/zip', ['-qr', archive, 'buddy-creator'], { cwd: release });
+const zipFiles = Object.fromEntries([...files.map((file) => file.path), 'skill-manifest.json'].map((path) => [
+  `buddy-creator/${path}`,
+  [readFileSync(join(output, path)), { os: 3, attrs: ((path === 'scripts/buddy' ? 0o100755 : 0o100644) << 16) >>> 0 }],
+]));
+writeFileSync(archive, zipSync(zipFiles, { level: 6 }));
 const digest = sha(readFileSync(archive));
 writeFileSync(archive+'.sha256', `${digest}  buddy-creator-${pkg.version}.zip\n`);
 console.log(JSON.stringify({ directory: output, archive, sha256: digest, bytes: statSync(archive).size, files: files.length,
-  productionPackages: seen.size, buildArchitecture: process.arch }, null, 2));
+  productionPackages: seen.size, platform: manifest.platform, architecture: manifest.architecture }, null, 2));

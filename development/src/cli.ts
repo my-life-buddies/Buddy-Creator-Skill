@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { join, resolve, relative, isAbsolute, dirname, basename } from "node:path";
+import { join, resolve, relative, isAbsolute, dirname, basename, sep } from "node:path";
 import { Store, openWorkspace, locateWorkspace } from "./store.js";
 import {
   BuddyError,
@@ -61,12 +61,13 @@ function worker(store: Store, sourceId: string) {
       "--workspace",
       store.directory,
     ],
-    { detached: true, stdio: "ignore" },
+    { detached: true, stdio: "ignore", windowsHide: true },
   );
   child.on("error", () => undefined);
   child.unref();
 }
 function protocol(store: Store) {
+  const entrypoint = process.env.BUDDY_SKILL_ENTRY ?? fileURLToPath(new URL("./cli.js", import.meta.url));
   return {
     role: ROLE,
     workspace: store.directory,
@@ -75,7 +76,8 @@ function protocol(store: Store) {
     model: "host-main-agent",
     sourcePolicy,
     distribution: "skill",
-    entrypoint: process.env.BUDDY_SKILL_ENTRY ?? fileURLToPath(new URL("./cli.js", import.meta.url)),
+    entrypoint,
+    entrypointCommand: { executable: process.execPath, args: [entrypoint] },
     completion: "local-deliverables",
     operations: [
       "turn_begin",
@@ -299,8 +301,17 @@ async function call(store: Store, operation: string, args: Record<string, any>) 
         limit: args.limit,
         hostResult: args.hostResult,
       };
-      const { enqueueSource } = await import("./sources.js");
+      const { enqueueSource, processSource } = await import("./sources.js");
       const source = enqueueSource(store, request);
+      if (request.hostResult) {
+        const saved = sourceView(await processSource(store, source.id));
+        return {
+          directive: saved.status === "ready" ? "source_ready" : "source_action_required",
+          sourceId: saved.id, jobId: saved.jobId, version: saved.version, status: saved.status,
+          processing: saved.processing, error: saved.error, errorDetails: saved.errorDetails,
+          message: saved.status === "ready" ? "宿主结果已保存，可以读取来源并继续当前工作。" : saved.error,
+        };
+      }
       worker(store, source.id);
       return {
         directive: source.status === "ready" ? "await_user" : "tool_pending",
@@ -313,9 +324,9 @@ async function call(store: Store, operation: string, args: Record<string, any>) 
     if (operation === "source_retry") {
       const source = store.source(args.sourceId);
       assertSourceSupported(source.kind);
-      check(!sourceNeedsHostResult(source), "HOST_MEDIA_REQUIRED",
-        "请由宿主工具补齐音视频结果，以新的 operationId 重新 source_import；旧任务内容已冻结，重复重试不能补出缺失结果。",
-        { source: sourceView(source), recovery: sourcePolicy.mediaRecovery });
+      check(!sourceNeedsHostResult(source), "HOST_SOURCE_REQUIRED",
+        "请由宿主工具补齐资料结果，以新的 operationId 重新 source_import；旧任务内容已冻结，重复重试不能补出缺失结果。",
+        { source: sourceView(source), recovery: sourcePolicy.hostRecovery });
       worker(store, source.id);
       return {
         directive: "tool_pending",
@@ -392,33 +403,14 @@ async function main() {
     return;
   }
   if (command === "doctor") {
-    const tools = await Promise.all(
-      ["node", "xcrun"].map(async (program) => {
-        try {
-          const { run } = await import("./sources.js");
-          const version = await run(
-            program,
-            ["--version"],
-            10000,
-          );
-          return { program, available: true, required: program === "node", purpose: program === "node" ? "local-workflow-preview" : "optional-scan-ocr", version: version.slice(0, 160) };
-        } catch {
-          return { program, available: program === "node", required: program === "node", purpose: program === "node" ? "local-workflow-preview" : "optional-scan-ocr" };
-        }
-      }),
-    );
     output({
       platform: process.platform,
       node: process.version,
-      tools,
-      hosts: {
-        codex: existsSync(join(process.env.HOME ?? "", ".local/bin/codex")),
-        "claude-code": existsSync(join(process.env.HOME ?? "", ".local/bin/claude")),
-        workbuddy: existsSync("/Applications/WorkBuddy.app"),
-      },
+      tools: [{ program: "node", available: true, required: true, version: process.version, purpose: "local-workflow-preview" }],
+      hostCapabilities: "provided-by-current-host",
       sourceKinds: SOURCE_KINDS,
       sourcePolicy,
-      note: "音视频由宿主实际可用的工具处理，Buddy 只保存返回结果，不检测或安装音视频系统资源。扫描件 OCR 可选使用 Apple Vision 与 Xcode Command Line Tools。",
+      note: "本地流程需要 Node.js 22.13+，不限制操作系统。资料识别与转换由宿主实际可用的工具完成，Buddy 保存真实结果与来源，不安装原生解析器。",
     });
     return;
   }
@@ -582,7 +574,7 @@ function physicalPath(path: string) {
 }
 function workspaceAccess(directory: string, existing = true) {
   const rel = relative(physicalPath(process.cwd()), physicalPath(directory));
-  const within = rel === "" || (!isAbsolute(rel) && rel !== ".." && !rel.startsWith("../"));
+  const within = rel === "" || (!isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep}`));
   return {
     relation: within ? "within_task_directory" : "outside_task_directory",
     taskDirectory: process.cwd(),

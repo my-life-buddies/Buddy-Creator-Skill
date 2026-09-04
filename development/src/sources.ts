@@ -2,19 +2,12 @@ import { spawn } from "node:child_process";
 import {
   existsSync,
   lstatSync,
-  mkdirSync,
   readFileSync,
   readdirSync,
-  realpathSync,
   statSync,
 } from "node:fs";
-import { basename, extname, join, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { Readability } from "@mozilla/readability";
-import { parseHTML } from "linkedom";
-import { XMLParser } from "fast-xml-parser";
-import { unzipSync, zipSync, strFromU8, strToU8 } from "fflate";
-import mammoth from "mammoth";
+import { basename, join, relative, resolve } from "node:path";
+import { zipSync } from "fflate";
 import {
   atomic,
   BuddyError,
@@ -31,7 +24,7 @@ import {
 } from "./io.js";
 import type { SourceKind, SourceManifest } from "./types.js";
 import type { Store } from "./store.js";
-import { assertSourceSupported, assertWebSourceSupported, isHostMedia, sourcePolicy } from "./source-policy.js";
+import { assertSourceSupported, assertWebSourceSupported, isTextSourcePath, sourceRequiresHostResult, sourceNeedsHostResult, sourcePolicy, sourceView } from "./source-policy.js";
 
 export type SourceRequest = {
   operationId: string;
@@ -41,33 +34,37 @@ export type SourceRequest = {
   text?: string;
   locale?: string;
   limit?: number;
-  hostResult?: HostMediaResult;
+  hostResult?: HostSourceResult;
 };
-export type HostMediaResult = {
+export type HostSourceResult = {
   tool: string;
   parts: Part[];
   coverage: "complete" | "partial";
   notes?: string[];
 };
+/** Backward-compatible request shape for the previous media-only entry point. */
+export type HostMediaResult = HostSourceResult;
 export type Part = { text: string; locator: string };
 
-function validateHostMediaResult(request: SourceRequest): HostMediaResult {
+function validateHostSourceResult(request: SourceRequest): HostSourceResult {
   const result = request.hostResult;
-  check(result, "HOST_MEDIA_REQUIRED", sourcePolicy.mediaRecovery, {
+  check(request.kind !== "oral", "HOST_RESULT_KIND", "口述来源直接保存创作者原话，不接受 hostResult。");
+  check(result, "HOST_SOURCE_REQUIRED", sourcePolicy.hostRecovery, {
     kind: request.kind,
     required: "hostResult: {tool, coverage, parts: [{text, locator}], notes?}",
   });
   check(typeof request.uri === "string" && request.uri.trim(), "SOURCE_LOCATION",
-    "请同时提供创作者选定的本地音视频原件路径，供结果关联与归档。");
+    "请同时提供创作者选定的本地原件路径或网页网址，供结果关联与归档。");
+  if (request.kind === "webpage") assertWebSourceSupported(request.uri);
   check(typeof result.tool === "string" && result.tool.trim() &&
-    ["complete", "partial"].includes(result.coverage), "HOST_MEDIA_RESULT",
+    ["complete", "partial"].includes(result.coverage), "HOST_SOURCE_RESULT",
     "请如实记录实际使用的宿主工具及 complete / partial 处理范围。");
   check(Array.isArray(result.parts) && result.parts.length && result.parts.every((part) =>
     part && typeof part.text === "string" && part.text.trim() &&
-    typeof part.locator === "string" && part.locator.trim()), "HOST_MEDIA_RESULT",
-    "宿主结果需包含实际取得的文字和位置；无时间戳时使用段落位置并注明 time=unavailable，不虚构定位。");
+    typeof part.locator === "string" && part.locator.trim()), "HOST_SOURCE_RESULT",
+    "宿主结果需包含实际取得的文字和位置。页码、时间戳或节点不可得时使用段落位置并注明 unavailable，不虚构定位。");
   check(result.notes === undefined || (Array.isArray(result.notes) && result.notes.every((note) =>
-    typeof note === "string")), "HOST_MEDIA_RESULT", "处理限制应以 notes 文字列表保存。");
+    typeof note === "string")), "HOST_SOURCE_RESULT", "处理范围与限制应以 notes 文字列表保存。");
   return result;
 }
 export function run(
@@ -208,93 +205,21 @@ export function parseHistory(text: string): Part[] {
   );
   return parts;
 }
-export async function nativeMedia(
-  store: Store,
-  command: "ocr",
-  path: string,
-): Promise<Part[]> {
-  check(
-    process.platform === "darwin",
-    "MACOS_REQUIRED",
-    "扫描件 OCR 使用 macOS 系统能力。",
-  );
-  const source = fileURLToPath(
-    new URL("../native/Media.swift", import.meta.url),
-  );
-  const cacheIdentity = {
-    command,
-    inputHash: hash(readFileSync(path)),
-    helperHash: hash(readFileSync(source)),
-  };
-  const resultPath = store.path(
-    "source-jobs",
-    "media-results",
-    `${hash(cacheIdentity)}.json`,
-  );
-  const cached = optional<{
-    identity: typeof cacheIdentity;
-    parts: Part[];
-    digest: string;
-  }>(resultPath);
-  if (cached) {
-    check(
-      hash(cached.identity) === hash(cacheIdentity) &&
-        cached.digest === hash(cached.parts),
-      "MEDIA_RESULT_CHANGED",
-      "已保存的媒体识别结果被改动，请保留现场核对。",
-    );
-    return cached.parts;
+function utf8Text(data: Buffer): string {
+  try {
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(data);
+    check(!text.includes("\0"), "HOST_SOURCE_REQUIRED", sourcePolicy.hostRecovery);
+    return text;
+  } catch (error) {
+    if (error instanceof BuddyError) throw error;
+    throw new BuddyError("HOST_SOURCE_REQUIRED", "这份材料不是可直接归档的 UTF-8 文本。请由宿主工具转换后提供 hostResult。", {
+      recovery: sourcePolicy.hostRecovery,
+    });
   }
-  const directory = store.path(
-    ".tools",
-    hash(readFileSync(source)).slice(0, 16),
-  );
-  const executable = join(directory, "BuddyMedia");
-  if (!existsSync(executable)) {
-    mkdirSync(directory, { recursive: true, mode: 0o700 });
-    const info = fileURLToPath(
-      new URL("../native/Info.plist", import.meta.url),
-    );
-    await run(
-      "/usr/bin/xcrun",
-      [
-        "swiftc",
-        "-parse-as-library",
-        "-O",
-        "-module-cache-path",
-        join(directory, "module-cache"),
-        source,
-        "-Xlinker",
-        "-sectcreate",
-        "-Xlinker",
-        "__TEXT",
-        "-Xlinker",
-        "__info_plist",
-        "-Xlinker",
-        info,
-        "-o",
-        executable,
-      ],
-      180000,
-    );
-  }
-  const output = JSON.parse(
-    await run(executable, [command, path], 1800000),
-  ) as { parts: Part[] };
-  check(
-    output.parts?.some((p) => p.text.trim()),
-    "EMPTY_TRANSCRIPT",
-    "系统未识别到有效文字，不能标为已读取。",
-  );
-  immutable(resultPath, {
-    identity: cacheIdentity,
-    parts: output.parts,
-    digest: hash(output.parts),
-  });
-  return output.parts;
 }
+
 async function parseLocal(
-  store: Store,
+  _store: Store,
   path: string,
   request: SourceRequest,
 ): Promise<{
@@ -306,255 +231,80 @@ async function parseLocal(
   extras?: { name: string; data: Buffer }[];
 }> {
   check(existsSync(path), "FILE_MISSING", "找不到选定的来源文件。", { path });
-  const kind = request.kind,
-    extension = extname(path).toLowerCase();
-  let warnings: string[] = [];
-  if (kind === "skill" && statSync(path).isDirectory()) {
-    const files: Record<string, Uint8Array> = {},
-      parts: Part[] = [];
+  const result = request.hostResult ? validateHostSourceResult(request) : undefined;
+  const extras = result ? [{ name: "host-result.json", data: Buffer.from(JSON.stringify(result, null, 2)) }] : [];
+  const warnings = result ? [
+    "资料文字来自宿主实际提供的工具结果；仅在所记录的位置与覆盖范围内引用，归纳仍需创作者校准。",
+    ...(result.notes ?? []),
+  ] : [];
+  if (request.kind === "skill" && statSync(path).isDirectory()) {
+    const files: Record<string, Uint8Array> = {};
+    const textParts: Part[] = [];
+    let totalBytes = 0;
     function visit(directory: string) {
-      for (const name of readdirSync(directory)) {
+      for (const name of readdirSync(directory).sort()) {
         const file = join(directory, name);
         if (lstatSync(file).isSymbolicLink()) continue;
         const stat = statSync(file);
         if (stat.isDirectory()) {
           if (![".git", "node_modules"].includes(name)) visit(file);
-        } else {
-          check(
-            Object.keys(files).length < 5000,
-            "SOURCE_SIZE",
-            "Skill 文件数超过5000，请限定来源范围。",
-          );
-          const rel = relative(path, file);
+        } else if (stat.isFile()) {
+          const rel = relative(path, file).split("\\").join("/");
+          if (!isTextSourcePath(rel, "skill")) continue;
+          check(Object.keys(files).length < 5000, "SOURCE_SIZE", "Skill 文本文件数超过5000，请限定来源范围。");
+          totalBytes += stat.size;
+          check(totalBytes <= 512 * 1024 * 1024, "SOURCE_SIZE", "Skill 文本目录超过512MB，请限定来源范围。");
           const data = readFileSync(file);
+          const text = utf8Text(data);
           files[rel] = data;
-          if (/\.(md|txt|json|ya?ml|py|[cm]?js|ts|sh)$/i.test(rel))
-            parts.push({ text: data.toString("utf8"), locator: `file=${rel}` });
+          textParts.push({ text, locator: `file=${rel}` });
         }
       }
     }
     visit(path);
-    check(parts.length, "SKILL_EMPTY", "Skill 中没有可整理的文本。");
-    return {
-      parts,
-      original: Buffer.from(zipSync(files)),
-      name: `${basename(path)}.zip`,
-      parser: "skill-archive-v1",
-      warnings,
-    };
+    const parts = result?.parts ?? textParts;
+    check(parts.some((part) => part.text.trim()), "SKILL_EMPTY", "所选 Skill 目录中没有可整理的文本。");
+    warnings.push("所选 Skill 目录只归档文本文件；跳过链接、依赖目录和非文本附件，不执行其中的脚本。非文本附件需单独选择并由宿主处理。");
+    return { parts, original: Buffer.from(zipSync(files)), name: `${basename(path)}-texts.zip`,
+      parser: result ? "host-skill-text-result-v1" : "skill-text-archive-v2", warnings, extras };
   }
-  check(
-    statSync(path).isFile(),
-    "SOURCE_NOT_FILE",
-    "请提供具体文件，或使用 Skill 类型导入目录。",
-  );
-  check(
-    statSync(path).size <= 512 * 1024 * 1024,
-    "SOURCE_SIZE",
-    "单个来源暂支持512MB以内；请按章节或媒体片段拆分。",
-  );
-  const original = readFileSync(path),
-    name = basename(path);
-  let parts: Part[] = [];
-  let parser = "text-v1";
-  const extras: { name: string; data: Buffer }[] = [];
-  if (kind === "history") {
-    parts = parseHistory(original.toString("utf8"));
-    parser = "selected-visible-messages-v1";
-    warnings = [
-      "原始会话文件保留在本机归档；交接只包含已清理的可见消息，不包含工具调用和宿主上下文。",
-    ];
-  } else if (
-    kind === "scan" ||
-    [".png", ".jpg", ".jpeg", ".heic", ".tiff"].includes(extension)
-  ) {
-    parts = await nativeMedia(store, "ocr", path);
-    parser = "apple-vision-v1";
-  } else if (isHostMedia(kind)) {
-    const result = validateHostMediaResult(request);
+  check(statSync(path).isFile(), "SOURCE_NOT_FILE", "请提供具体文件，或使用 Skill 类型导入目录。");
+  check(statSync(path).size <= 512 * 1024 * 1024, "SOURCE_SIZE", "单个来源暂支持512MB以内；请按章节或媒体片段拆分。");
+  const original = readFileSync(path);
+  let parts: Part[];
+  let parser: string;
+  if (result) {
     parts = result.parts;
-    parser = "host-media-result-v1";
-    extras.push({
-      name: "host-result.json",
-      data: Buffer.from(JSON.stringify(result, null, 2)),
-    });
-    warnings.push(
-      "音视频内容来自宿主工具的处理结果；仅在已提供的定位和覆盖范围内引用，归纳仍需创作者校准。",
-      ...(result.notes ?? []),
-    );
-  } else if (extension === ".pdf") {
-    const pdf = await import("pdfjs-dist/legacy/build/pdf.mjs");
-    const loading = pdf.getDocument({
-      data: new Uint8Array(original),
-      useSystemFonts: true,
-    });
-    const document = await loading.promise;
-    let scanned = false;
-    for (let i = 1; i <= document.numPages; i++) {
-      const page = await document.getPage(i);
-      const content = await page.getTextContent();
-      const text = content.items
-        .map((item) => ("str" in item ? item.str : ""))
-        .join(" ");
-      if (!text.trim()) scanned = true;
-      parts.push({ text, locator: `page=${i}` });
-    }
-    await loading.destroy();
-    if (scanned) {
-      const ocr = await nativeMedia(store, "ocr", path);
-      parts = parts.map((p) =>
-        p.text.trim() ? p : (ocr.find((o) => o.locator === p.locator) ?? p),
-      );
-      warnings.push("无文本页面已使用系统 OCR；请校准识别结果。");
-    }
-    parser = "pdfjs+vision-v1";
-  } else if (extension === ".docx") {
-    parts = [
-      {
-        text: (await mammoth.extractRawText({ buffer: original })).value,
-        locator: "document",
-      },
-    ];
-    parser = "mammoth-v1";
-  } else if ([".doc", ".rtf"].includes(extension)) {
-    parts = [
-      {
-        text: await run("/usr/bin/textutil", [
-          "-convert",
-          "txt",
-          "-stdout",
-          path,
-        ]),
-        locator: "document",
-      },
-    ];
-    parser = "macos-textutil-v1";
-  } else if (
-    kind === "mindmap" ||
-    [".xmind", ".mm", ".opml"].includes(extension)
-  ) {
-    let data: unknown;
-    if (extension === ".xmind") {
-      const entries = unzipSync(original);
-      check(
-        entries["content.json"] || entries["content.xml"],
-        "MINDMAP_FORMAT",
-        "XMind 文件缺少 content.json / content.xml。",
-      );
-      data = entries["content.json"]
-        ? JSON.parse(strFromU8(entries["content.json"]))
-        : new XMLParser({ ignoreAttributes: false }).parse(
-            strFromU8(entries["content.xml"]!),
-          );
-    } else
-      data =
-        extension === ".json"
-          ? JSON.parse(original.toString("utf8"))
-          : new XMLParser({ ignoreAttributes: false }).parse(
-              original.toString("utf8"),
-            );
-    function walk(value: unknown, path: string) {
-      if (!value || typeof value !== "object") return;
-      if (Array.isArray(value)) {
-        value.forEach((v, i) => walk(v, `${path}/${i}`));
-        return;
-      }
-      for (const [key, v] of Object.entries(value)) {
-        if (
-          ["title", "@_TEXT", "@_text", "#text"].includes(key) &&
-          typeof v === "string"
-        )
-          parts.push({ text: v, locator: `node=${path}/${key}` });
-        else walk(v, `${path}/${key}`);
-      }
-    }
-    walk(data, "root");
-    parser = "mindmap-tree-v1";
+    parser = request.kind === "history" ? "host-selected-visible-messages-v1" : "host-source-result-v1";
+  } else if (request.kind === "history") {
+    parts = parseHistory(utf8Text(original));
+    parser = "selected-visible-messages-v1";
   } else {
-    check(
-      [
-        ".md",
-        ".txt",
-        ".json",
-        ".jsonl",
-        ".csv",
-        ".yaml",
-        ".yml",
-        ".html",
-        ".htm",
-      ].includes(extension) ||
-        kind === "oral" ||
-        kind === "skill",
-      "UNSUPPORTED_FORMAT",
-      "该文件格式尚未提供解析器。",
-      { extension },
-    );
-    parts = [{ text: original.toString("utf8"), locator: "document" }];
+    check(!sourceRequiresHostResult(request), "HOST_SOURCE_REQUIRED", sourcePolicy.hostRecovery);
+    parts = [{ text: utf8Text(original), locator: "document" }];
+    parser = "text-verbatim-v2";
   }
-  check(
-    parts.some((p) => p.text.trim()),
-    "EMPTY_SOURCE",
-    "没有解析到可用内容，不能标为已读取。",
+  if (request.kind === "history") warnings.push(
+    "原始会话文件仅保留在本机私有归档；资料产物只包含选定的可见用户和助手消息，宿主结果也必须限定在这一范围，不包含工具调用和宿主上下文。",
   );
-  return { parts, original, name, parser, warnings, extras };
+  check(parts.some((part) => part.text.trim()), "EMPTY_SOURCE", "没有取得可用内容，不能标为已读取。");
+  return { parts, original, name: basename(path), parser, warnings, extras };
 }
-export async function readableWeb(
-  url: string,
-): Promise<{ parts: Part[]; original: Buffer; title: string }> {
-  let parsed = new URL(url);
-  const signal = AbortSignal.timeout(30000);
-  let response: Response;
-  for (let redirects = 0; ; redirects++) {
-    assertWebSourceSupported(parsed.href);
-    response = await fetch(parsed, {
-      signal, redirect: "manual",
-      headers: { "User-Agent": "BuddyCreator/0.2 (+local creator archive)" },
-    });
-    if (![301, 302, 303, 307, 308].includes(response.status)) break;
-    const location = response.headers.get("location");
-    await response.body?.cancel();
-    check(location && redirects < 5, "WEB_REDIRECT", "网页跳转过多或缺少目标地址。");
-    parsed = new URL(location, parsed);
-  }
-  check(
-    response.ok,
-    "WEB_FETCH_FAILED",
-    `网页返回 ${response.status}，内容没有导入。`,
-  );
-  check(
-    Number(response.headers.get("content-length") ?? 0) <= 20000000,
-    "SOURCE_SIZE",
-    "网页超过20MB。",
-  );
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  for await (const chunk of response.body!) {
-    size += chunk.byteLength;
-    check(size <= 20000000, "SOURCE_SIZE", "网页超过20MB。");
-    chunks.push(chunk);
-  }
-  const original = Buffer.concat(chunks);
-  const { document } = parseHTML(original.toString("utf8"));
-  document
-    .querySelectorAll("script,style,nav,footer")
-    .forEach((e) => e.remove());
-  const article = new Readability(document as unknown as Document).parse();
-  const text =
-    article?.textContent?.trim() ?? document.body.textContent?.trim() ?? "";
-  return {
-    parts: text.length > 40 ? [{ text, locator: `url=${response.url}` }] : [],
-    original,
-    title: article?.title ?? parsed.hostname,
-  };
+
+/** Compatibility entry point: webpage extraction now belongs to the host, with no implicit fetch. */
+export async function readableWeb(url: string): Promise<{ parts: Part[]; original: Buffer; title: string }> {
+  assertWebSourceSupported(url);
+  throw new BuddyError("HOST_SOURCE_REQUIRED", sourcePolicy.hostRecovery, { kind: "webpage", uri: url });
 }
 export function enqueueSource(
   store: Store,
   request: SourceRequest,
 ): SourceManifest {
   assertSourceSupported(request.kind);
-  if (isHostMedia(request.kind)) validateHostMediaResult(request);
-  else check(request.hostResult === undefined, "HOST_RESULT_KIND", "hostResult 仅用于 audio / video 来源。");
-  if (request.kind === "webpage" && request.uri) assertWebSourceSupported(request.uri);
+  if (request.kind === "webpage") assertWebSourceSupported(request.uri ?? "");
+  if (request.hostResult || sourceRequiresHostResult(request)) validateHostSourceResult(request);
+  if (request.kind === "oral") check(typeof request.text === "string" && request.text.trim(), "SOURCE_LOCATION", "口述来源需要保存创作者的完整原话。");
+  else check(typeof request.uri === "string" && request.uri.trim(), "SOURCE_LOCATION", "非口述来源需要选定原件路径或网页网址。");
   safeId(request.operationId);
   check(
     request.uri || request.text?.trim(),
@@ -641,6 +391,9 @@ export async function processSource(store: Store, sourceId: string) {
         store.path("source-jobs", `${previous.jobId}.json`),
       );
       assertSourceSupported(request.kind);
+      // Removed converters must not restart legacy jobs or rewrite their archived states.
+      if (!request.hostResult && (sourceRequiresHostResult(request) || sourceNeedsHostResult(previous))) return sourceView(previous);
+      if (previous.status === "failed" && sourceNeedsHostResult(previous) && previous.files.length) return sourceView(previous);
       const manifest: SourceManifest = {
         ...previous,
         version: `attempt_${previous.attempt + 1}`,
@@ -672,8 +425,8 @@ export async function processSource(store: Store, sourceId: string) {
         let parts: Part[] = [];
         manifest.files = [];
         manifest.warnings = [];
-        if (isHostMedia(request.kind)) {
-          const result = validateHostMediaResult(request);
+        if (request.hostResult) {
+          const result = validateHostSourceResult(request);
           manifest.extraction = { provider: "host", tool: result.tool, coverage: result.coverage, notes: result.notes };
         }
         if (request.kind === "oral") {
@@ -683,11 +436,19 @@ export async function processSource(store: Store, sourceId: string) {
           manifest.processing!.acquisition = "complete";
           manifest.processing!.parsing = "running";
         } else if (request.kind === "webpage") {
-          const result = await readableWeb(request.uri!);
+          const result = validateHostSourceResult(request);
           parts = result.parts;
-          save("original.html", result.original);
-          manifest.title = request.title ?? result.title;
-          manifest.parser = "readability-v1";
+          save("host-result.json", JSON.stringify(result, null, 2));
+          save("webpage-snapshot.json", JSON.stringify({
+            archiveKind: "host-extracted-snapshot",
+            url: request.uri,
+            capturedAt: manifest.acquiredAt,
+            notice: "宿主读取结果的归档快照，不是网站原始 HTML 或完整网页副本。",
+            hostResult: result,
+          }, null, 2));
+          manifest.title = request.title ?? new URL(request.uri!).hostname;
+          manifest.parser = "host-webpage-snapshot-v1";
+          manifest.warnings = ["仅归档宿主实际取得的网页文字与位置；不表示已保存原始 HTML、登录后内容或所有链接页面。", ...(result.notes ?? [])];
           manifest.processing!.acquisition = "complete";
           manifest.processing!.parsing = "running";
         } else {
@@ -771,9 +532,9 @@ export async function processSource(store: Store, sourceId: string) {
           parts.map((p) => `[${p.locator}]\n${p.text}`).join("\n\n"),
         );
         save("chunks.json", JSON.stringify(manifest.chunks, null, 2));
-        check(!isHostMedia(request.kind) || request.hostResult?.coverage === "complete",
-          "HOST_MEDIA_INCOMPLETE", "宿主仅提供了部分音视频结果，已保存原件与结果，但尚未完整处理。请补齐后以新的 operationId 导入，不重复重试相同的部分结果。",
-          { recovery: sourcePolicy.mediaRecovery });
+        check(!request.hostResult || request.hostResult.coverage === "complete",
+          "HOST_SOURCE_INCOMPLETE", "宿主仅提供了部分资料结果，已保存原件或网页快照及处理结果，但尚未完整处理。请补齐后以新的 operationId 导入，不重复重试相同的部分结果。",
+          { recovery: sourcePolicy.hostRecovery });
         manifest.status = "ready";
         manifest.processing!.parsing = "complete";
         manifest.version = `sourcev_${hash({ files: manifest.files, parser: manifest.parser }).slice(0, 28)}`;

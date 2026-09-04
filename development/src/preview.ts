@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { extname, join, resolve } from "node:path";
+import { extname, join, resolve, sep } from "node:path";
 import { randomBytes } from "node:crypto";
 import { createConnection } from "node:net";
 import { Store } from "./store.js";
@@ -289,7 +289,7 @@ export async function servePreview(store: Store, port = 0) {
           return;
         }
         const file = resolve(staticRoot, route || "index.html");
-        if (!file.startsWith(resolve(staticRoot) + "/")) {
+        if (!file.startsWith(resolve(staticRoot) + sep)) {
           res.writeHead(404);
           res.end();
           return;
@@ -360,6 +360,18 @@ export async function servePreview(store: Store, port = 0) {
     return { url, server };
   });
 }
+async function requestBrowserOpen(url: string): Promise<"browser_open_requested" | "host_open_required"> {
+  const command = process.platform === "darwin" ? "/usr/bin/open"
+    : process.platform === "linux" ? "xdg-open" : undefined;
+  // Hosts can open the returned URL directly, including on Windows or headless Linux.
+  if (!command) return "host_open_required";
+  return new Promise((resolve) => {
+    const child = spawn(command, [url], { stdio: "ignore" });
+    child.once("error", () => resolve("host_open_required"));
+    child.once("spawn", () => { child.unref(); resolve("browser_open_requested"); });
+  });
+}
+
 export async function startPreview(store: Store, openBrowser = true) {
   return withLock(store.path(".preview-lifecycle"), async () => {
     savedEndpoint(store);
@@ -376,7 +388,7 @@ export async function startPreview(store: Store, openBrowser = true) {
       const child = spawn(
         process.execPath,
         [cli, "serve", "--workspace", store.directory],
-        { detached: true, stdio: ["ignore", "pipe", "pipe"] },
+        { detached: true, stdio: ["ignore", "pipe", "pipe"], windowsHide: true },
       );
       let startupOutput = "", startupError: Error | undefined;
       child.stdout?.on("data", (data: Buffer) => { if (startupOutput.length < 16000) startupOutput += data.toString(); });
@@ -408,14 +420,10 @@ export async function startPreview(store: Store, openBrowser = true) {
         child.stdout?.destroy(); child.stderr?.destroy();
       }
     }
-    if (openBrowser && process.platform === "darwin") {
-      const child = spawn("/usr/bin/open", [info.url], { stdio: "ignore" });
-      child.on("error", () => undefined);
-      child.unref();
-    }
+    const displayStatus = openBrowser ? await requestBrowserOpen(info.url) : "not_opened";
     return {
       url: info.url,
-      displayStatus: openBrowser ? "browser_open_requested" : "not_opened",
+      displayStatus,
       readonly: true,
       addressPolicy: "stable_per_workspace",
     };

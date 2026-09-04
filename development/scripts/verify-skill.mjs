@@ -1,17 +1,23 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, realpathSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, realpathSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
+import { unzipSync } from 'fflate';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const version = JSON.parse(readFileSync(join(root, 'package.json'))).version;
 const temporary = realpathSync(mkdtempSync(join(tmpdir(), 'buddy-skill-install-')));
 const archive = join(root, 'release', `buddy-creator-${version}.zip`);
 let workspace, cli;
 try {
-  execFileSync('/usr/bin/unzip', ['-q', archive, '-d', temporary]);
+  for (const [name, bytes] of Object.entries(unzipSync(readFileSync(archive)))) {
+    const destination = resolve(temporary, name);
+    assert.ok(destination.startsWith(`${temporary}${sep}`), 'Archive entry must stay in the install directory');
+    if (name.endsWith('/')) mkdirSync(destination, { recursive: true });
+    else { mkdirSync(dirname(destination), { recursive: true }); writeFileSync(destination, bytes); }
+  }
   const skill = join(temporary, 'buddy-creator');
   const manifest = JSON.parse(readFileSync(join(skill, 'skill-manifest.json')));
   for (const item of manifest.files) {
@@ -19,9 +25,9 @@ try {
     assert.equal(bytes.length, item.bytes, item.path);
     assert.equal(createHash('sha256').update(bytes).digest('hex'), item.sha256, item.path);
   }
-  cli = join(skill, 'scripts/buddy');
+  cli = join(skill, 'scripts/buddy.mjs');
   function invoke(args, input) {
-    return JSON.parse(execFileSync(cli, args, { cwd: temporary, input: input ? JSON.stringify(input) : undefined,
+    return JSON.parse(execFileSync(process.execPath, [cli, ...args], { cwd: temporary, input: input ? JSON.stringify(input) : undefined,
       encoding: 'utf8', env: { ...process.env, NODE_PATH: '', BUDDY_SKILL_ENTRY: '' } }));
   }
   const common = ['--buddyid', 'skill-package-smoke', '--home', join(temporary, 'registry'), '--root', join(temporary, 'projects')];
@@ -70,7 +76,7 @@ try {
     hostParameters: ['codex', 'claude-code', 'workbuddy'], actualThreeHostAcceptance: false }, null, 2));
 } finally {
   if (workspace && cli) {
-    try { execFileSync(cli, ['stop', '--workspace', workspace], { encoding: 'utf8', cwd: temporary }); } catch {}
+    try { execFileSync(process.execPath, [cli, 'stop', '--workspace', workspace], { encoding: 'utf8', cwd: temporary }); } catch {}
   }
   rmSync(temporary, { recursive: true, force: true });
 }
