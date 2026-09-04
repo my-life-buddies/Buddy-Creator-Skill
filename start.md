@@ -1,15 +1,27 @@
-# 安装 Buddy Skill，直接开始创作
+# 安装并启动 Buddy Creator Skill 1.0.0
 
-本说明供当前宿主主 agent 执行。用户无需提供 buddyid 或项目名称。
+这是给当前宿主 agent 的安装入口。目标是在主对话中帮助创作者完成定义、知识、方法、服务四阶段创作，并打开本机只读预览。用户不需要填写 buddyid、选宿主或额外指定说话风格。
 
-1. 获取 [完整 Skill ZIP](https://github.com/my-life-buddies/Buddy-Journalist-Skill/releases/download/v0.2.3/buddy-creator-0.2.3.zip) 和 [SHA-256](https://github.com/my-life-buddies/Buddy-Journalist-Skill/releases/download/v0.2.3/buddy-creator-0.2.3.zip.sha256)，用当前系统实际可用的工具校验并解压。需要 Node.js 22.13+；包内已有运行依赖，无需构建前端。已移除 macOS 硬限制，各宿主与系统组合仍需实机验收。
-2. 使用当前宿主的技能安装方式：Codex 的已配置 skills 目录；Claude Code 的 ~/.claude/skills 或项目 .claude/skills；WorkBuddy 的本地技能导入。根据自身身份处理，不要求用户选择宿主或注册 Expert。更新同名 skill 时只替换技能文件并保留备份，不删除搭子项目。
-3. 当前会话读取安装目录的 SKILL.md，并用 Node 执行 scripts/buddy.mjs 的绝对路径。若宿主暂时无法自动导入，可从解压目录读取 SKILL.md 开始本次创作，如实区分“已运行”和“已安装”。不要调用旧本地启动器中配置的默认项目。
-4. 保持用户当前创作工作目录，运行 `node <技能目录>/scripts/buddy.mjs open --no-browser --creation-key <本次启动的稳定身份>`。路径及参数独立传递，不套用其他系统的 shell 语法。启动身份由宿主生成并保存，重试复用；内部 buddyid 自动生成，不向用户提问。
-5. 保存返回的 buddyId、workspace、sessionId、operationEpoch，读取 protocol.hostGuide，后续优先使用 protocol.entrypointCommand 的 executable 与 args。打开返回的 preview.url；支持内嵌预览时显示在旁边。按 next 完整呈现通俗开场、搭子例子、四步流程与首问。
-6. 后续每条真实输入先 turn_begin 原样保存，再按上下文和阶段规则处理，turn_finish 保存并继续引导。只读预览随实际保存更新；修改和确认发生在主对话。
-7. 四册确认后，根据 completion 提供本地手册入口。无模拟开发交接，无默认 ZIP 交付。继续当前项目使用 `open --workspace <已保存目录>`，不要再次无参数创建新项目。
+## 获取完整包
 
-PDF、Word、旧文档、扫描件、二进制导图、网页与音视频均使用当前宿主实际可用工具，按 SKILL.md 的 hostResult 协议将真实提取结果、来源、定位与覆盖范围交回本地保存。完整结果归档后直接继续采访；部分结果保留缺口，没有合适工具时可使用用户已有的导出文本、转写或可读原文。本地不再内置 OCR、文档转换、网页抓取或媒体处理；纯文本、选定历史可见消息与文本 Skill 可直接归档。
+- 安装包：[buddy-creator-1.0.0.zip](https://github.com/my-life-buddies/Buddy-Creator-Skill/releases/download/v1.0.0/buddy-creator-1.0.0.zip)
+- 校验文件：[buddy-creator-1.0.0.zip.sha256](https://github.com/my-life-buddies/Buddy-Creator-Skill/releases/download/v1.0.0/buddy-creator-1.0.0.zip.sha256)
+- 仓库：[my-life-buddies/Buddy-Creator-Skill](https://github.com/my-life-buddies/Buddy-Creator-Skill)
 
-直接通过 Git 安装本仓库时，根目录就是 skill；缺少 lib/node_modules 时先执行 `npm ci --omit=dev --ignore-scripts --prefix lib`。仓库和完整包均不包含创作者项目数据。
+下载完整 ZIP 和校验文件，用可用工具核对 SHA-256 后解压。包内根目录为 `buddy-creator`，包含工具和预览资源，无需执行构建或安装第三方依赖。下载或校验失败时报告实际错误，不把未取得的包说成已安装。
+
+## 安装
+
+1. 查找宿主或系统实际可用的 Python 3.9+，读取真实版本，保存并复用其绝对路径。本包不需要 Node、npm、pip 或独立模型账号。缺少兼容 Python 时需准备该环境；不要仅凭命令名猜测版本或写死某台机器的路径。
+2. 将 `buddy-creator` 安装到当前宿主实际支持的 Skill 目录。已有同名 Skill 时先备份旧程序文件，再替换为新版。保留所有用户工作目录；若项目误存于旧安装目录，保留该目录并另行安装新版，不能随程序清理。已有 `buddy-creator-no-node` 试用版可以保留，但本次明确使用 `$buddy-creator`。
+3. 读取安装后的 `SKILL.md`，并按其中的宿主调用协议启动。宿主没有自动发现 Skill 的能力时，直接读取该文件并调用随附工具即可；不要求注册额外 agent 或 Expert。
+
+## 开始创作
+
+在当前创作目录运行，不切换到 Skill 安装目录。新建时使用实际 Python 路径调用 `scripts/buddy.py open --creation-key <本条启动消息的稳定身份> --no-browser`。creation-key 由宿主取得或生成一次，重试沿用，不询问创作者。工具自动生成独立项目身份，从空白开始。
+
+保存返回的 workspace，后续所有回合使用这一目录。打开返回的 `preview.url`；宿主支持侧边浏览器时在旁边打开。完整呈现返回的开场介绍，说明搭子是什么、创作四步和实际价值，然后自然进入第一问。后续每轮按照 `SKILL.md` 先保存用户输入、再提交整理结果并展示交付。
+
+用户明确继续已有 Python 无 Node 试用版项目时，使用 `open --workspace <原项目绝对路径> --no-browser` 接续，不另建项目。旧 Node 0.x 项目及 SQLite/LangGraph 检查点不自动迁移；仅在创作者明确选择后将其手册或资料导入新项目，不能继承旧确认。
+
+采访、修订和确认都留在主对话中。预览只能展示，不自行修改内容；本机预览服务需要宿主环境允许启动并访问。各宿主与系统组合尚未全部完成实机验收；无法执行的环节要说明具体原因。此版本不包含小红书账号蒸馏或 coding CLI mock handoff。

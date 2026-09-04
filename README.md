@@ -1,60 +1,60 @@
-# Buddy Journalist Skill
+# Buddy Creator Skill 1.0.0
 
-在 Codex、Claude Code 或 WorkBuddy 的主对话中，通过访谈创建自己的搭子。旁边的浏览器实时展示只读创作手册、访谈进度和服务模式图。
+在你正在使用的 coding agent 主对话中，把一个搭子想法逐步整理成可确认的创作手册。旁边的只读预览同步呈现访谈进度、已经形成的内容和服务模式图。
 
-**直接说“帮我创建一个搭子”即可开始，无需提供 buddyid。** 工具会生成内部标识、保存项目，并在同一对话中接续创作。
+**无需 Node。** 使用 Python 3.9+ 标准库，无需 npm、pip、第三方 Python 包或独立模型账号。理解、采访与撰写由宿主主 agent 完成，本地工具负责保存、版本确认、恢复和预览。
 
 ## 一句话开始
 
-把下面这句话交给宿主 agent：
+将下面这句话发给宿主 agent：
 
-> 请从 https://raw.githubusercontent.com/my-life-buddies/Buddy-Journalist-Skill/main/start.md 安装 Buddy Skill，开始创作一个搭子。
+> 请从 https://raw.githubusercontent.com/my-life-buddies/Buddy-Creator-Skill/main/start.md 安装 Buddy Creator Skill，并开始帮我创作一个搭子。
 
-## 下载完整 Skill
+也可以下载[完整安装包](https://github.com/my-life-buddies/Buddy-Creator-Skill/releases/download/v1.0.0/buddy-creator-1.0.0.zip)，交给宿主安装。[SHA-256 校验文件](https://github.com/my-life-buddies/Buddy-Creator-Skill/releases/download/v1.0.0/buddy-creator-1.0.0.zip.sha256)
 
-- [下载 buddy-creator 0.2.3](https://github.com/my-life-buddies/Buddy-Journalist-Skill/releases/download/v0.2.3/buddy-creator-0.2.3.zip)
-- [SHA-256 校验文件](https://github.com/my-life-buddies/Buddy-Journalist-Skill/releases/download/v0.2.3/buddy-creator-0.2.3.zip.sha256)
-
-ZIP 内包含运行依赖和预览页面。解压后，将 `buddy-creator` 目录放入宿主的技能目录；WorkBuddy 可使用“添加技能 → 上传技能”导入。Skill 的调用名称是 **buddy-creator**。
-
-通过 Git 获取本仓库也可以安装：仓库根目录就是 skill。Git 版本首次使用需要 `npm ci --omit=dev --ignore-scripts --prefix lib`，完整 ZIP 无需此步骤。
+不需要提供 buddyid。宿主自动创建空白项目、打开预览，再用通俗的介绍开始访谈。安装与升级细节见 [INSTALL.md](INSTALL.md)。
 
 ## 创作流程
 
-| 阶段 | 一起整理的内容 |
+| 阶段 | 一起明确的内容 |
 | --- | --- |
-| 定义 | 帮助谁、带来什么变化、角色与边界 |
-| 知识 | 已有资料、实际经验、依据与待补充内容 |
-| 方法 | 面对具体场景如何判断、执行和调整 |
-| 服务 | 免费体验、订阅服务与维持期间的帮助 |
+| 定义 | 帮谁、解决什么问题、带来什么改变，以及搭子的角色 |
+| 知识 | 可用资料、创作者经验、适用范围与知识缺口 |
+| 方法 | 判断方法、具体执行案例，以及条件变化时如何调整 |
+| 服务 | 免费体验、付费服务、维持期的具体帮助和订阅方式 |
 
-访谈采用专业、自然、循循善诱的表达。新建时先介绍搭子和流程，再进入首问。修改与确认发生在主对话中；预览只读。四册确认后，自动生成本地手册和服务模式图。
+采访会根据你的实际场景适时举例，充分时进入下一步。内容与版本在对话中校准；四册确认后形成本地手册、服务模式图和来源记录。预览只读，修订和确认通过对话完成；宿主实际提供原生标注时，也可把标注作为修订输入。
 
-## 环境与续作
+服务订阅时长由创作者定义。付费期间 AI 对话不限次数，真人服务另行约定；免费体验可以持续跟进，维持期保留历史和基础对话。
 
-- 需要 Node.js 22.13+ 和可执行本地命令的宿主。已移除 macOS 硬限制与平台绑定的资料处理依赖，各宿主与系统组合仍需实机验收。
-- 推理由宿主主 agent 提供，无需另配模型账号或注册企业 Expert。
-- 新创作自动建立独立目录。继续当前项目使用已保存的 workspace；明确提供已有 buddyid 时也可按 ID 续作。
-- 项目、原话、来源和确认记录保存在 skill 目录之外。更新 skill 不清空项目。
-- PDF、Word、旧文档、扫描件、二进制导图、网页与音视频使用宿主实际可用工具。真实结果、来源和定位交回本地保存；没有合适工具时，可提供导出文本或转写材料。
-- 本地工具保留访谈流程、纯文本与选定历史可见消息归档、保存恢复和只读预览。资料只有部分处理成功时，保留缺口并继续补齐。
+## 保存与接续
 
-默认入口为 `node <技能目录>/scripts/buddy.mjs`；macOS/Linux 与 Windows 分别提供 shell、cmd 便捷入口。Windows 的入口准备不代表其完整交互已支持或验收。
+- 保存真实输入、中间草稿、产物版本和对应确认，已保存回合可恢复。
+- 每个作品使用独立工作目录，安装包不附带个人草稿。
+- 再次打开同一工作目录时接续进度，并复用本机预览入口。
+- 此前 Python 无 Node 试用版项目可用 `open --workspace` 原路径继续；旧 Node 0.x 项目及 LangGraph 检查点不自动迁移。
+- 升级同名 Skill 时先备份程序文件，保留用户项目；旧试用版入口可以共存，使用时明确选择 `$buddy-creator`。
 
-本版本不包含模拟 coding CLI 交接与小红书账号采集。用户自行提供的本地材料仍可整理。
+宿主必须把每轮输入交给本地工具才能同步。本地工具不能恢复从未提交的消息，也不会代替宿主在后台推理。
 
-## 仓库结构
+## 使用条件
 
-```text
-SKILL.md       skill 入口
-references/    按阶段读取的访谈规则与宿主协议
-scripts/       启动入口
-lib/           构建好的本地工具与依赖锁定文件
-assets/        只读预览
-agents/        宿主显示信息
-development/   维护源码、构建脚本与测试
-```
+宿主需能够读取 Skill、执行 Python、读写创作目录，并访问本机只读预览。可在 Codex、Claude Code、WorkBuddy 中由主 agent 调用；各宿主的安装方式和可用工具由其实际环境决定，尚未完成全部宿主与系统组合的完整实机验收。
 
-完整安装包在 Releases；Git 中不提交 node_modules 或任何创作者项目数据。
+网页、PDF、Word、扫描件和音视频交给宿主已有工具读取，再保留实际结果与来源定位。不包含小红书账号蒸馏、coding CLI mock handoff，也不把设计完成表述为应用已经开发上线。
 
-维护源码位于 `development/`。安装开发依赖后运行 `npm run pack:skill` 可重新生成独立 skill 包。规则或源码改动应重新构建并同步根目录中的分发文件。第三方许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+## 仓库内容
+
+| 路径 | 用途 |
+| --- | --- |
+| `SKILL.md` | 宿主入口、采访闭环与主要规则 |
+| `references/` | 四阶段规则、调用协议、产物字段与恢复说明 |
+| `scripts/` | Python 本地工具 |
+| `assets/` | 随包提供的只读预览资源 |
+| `agents/openai.yaml` | Skill 展示名称与启动提示 |
+| `version.json` | 产品版本与工作区格式 |
+| `development/package_skill.py` | 使用 Python 生成 ZIP 与 SHA-256 |
+
+维护者可在仓库目录运行 `python3 development/package_skill.py`，产物写入 `release/`。安装使用不需要执行此步骤。旧 Node 实现保留在 v0.2.x 标签的 Git 历史中。
+
+完整安装包见 [v1.0.0 Release](https://github.com/my-life-buddies/Buddy-Creator-Skill/releases/tag/v1.0.0)。

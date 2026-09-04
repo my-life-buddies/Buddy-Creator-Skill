@@ -1,0 +1,8 @@
+{
+  "name": "buddy-creator",
+  "displayName": "Buddy Creator Skill",
+  "version": "1.0.0",
+  "python": ">=3.9",
+  "workspaceFormat": "buddy-creator-1",
+  "nodeRequired": false
+}

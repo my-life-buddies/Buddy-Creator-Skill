@@ -1,3 +1,4 @@
 interface:
-  display_name: "Buddy 创作搭子"
-  short_description: "在主对话中完成四阶段搭子创作，同步只读预览并保存本地手册"
+  display_name: "Buddy Creator Skill"
+  short_description: "在主对话中循序创作搭子，实时预览四册手册，无需 Node 环境"
+  default_prompt: "请使用 $buddy-creator 帮我开始创作一个搭子。"
