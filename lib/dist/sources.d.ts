@@ -8,6 +8,13 @@ export type SourceRequest = {
     text?: string;
     locale?: string;
     limit?: number;
+    hostResult?: HostMediaResult;
+};
+export type HostMediaResult = {
+    tool: string;
+    parts: Part[];
+    coverage: "complete" | "partial";
+    notes?: string[];
 };
 export type Part = {
     text: string;
@@ -16,7 +23,7 @@ export type Part = {
 export declare function run(program: string, args: string[], timeout?: number): Promise<string>;
 export declare function chunkParts(parts: Part[]): SourceManifest["chunks"];
 export declare function parseHistory(text: string): Part[];
-export declare function nativeMedia(store: Store, command: "ocr" | "transcribe", path: string, locale?: string): Promise<Part[]>;
+export declare function nativeMedia(store: Store, command: "ocr", path: string): Promise<Part[]>;
 export declare function readableWeb(url: string): Promise<{
     parts: Part[];
     original: Buffer;

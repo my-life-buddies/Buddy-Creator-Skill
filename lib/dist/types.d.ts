@@ -89,6 +89,12 @@ export type SourceManifest = {
     attempt: number;
     warnings: string[];
     parser: string;
+    extraction?: {
+        provider: "host";
+        tool: string;
+        coverage: "complete" | "partial";
+        notes?: string[];
+    };
     processing?: {
         acquisition: "queued" | "running" | "complete" | "partial" | "failed";
         parsing: "not_started" | "running" | "complete" | "partial" | "failed";

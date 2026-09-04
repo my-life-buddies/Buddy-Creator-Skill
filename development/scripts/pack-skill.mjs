@@ -87,6 +87,7 @@ walk(output);
 for (const file of files) if (/\/(?:mock-coding-cli|coding-handoff|xiaohongshu)\.(?:js|d\.ts)$/.test(file.path)) throw new Error(`Removed capability in package: ${file.path}`);
 const manifest = { name: 'buddy-creator', version: pkg.version, formatVersion: 1, platform: 'darwin', buildArchitecture: process.arch,
   node: '>=22.13', model: 'host-main-agent', workflow: 'langgraph-sqlite-1', completion: 'local-deliverables',
+  mediaProcessing: 'host-tools', bundledMediaProcessing: false, optionalLocalOcr: 'apple-vision',
   missingOptionalDependencies: [...missingOptional].sort(), files };
 writeFileSync(join(output, 'skill-manifest.json'), JSON.stringify(manifest, null, 2)+'\n');
 const archive = join(release, `buddy-creator-${pkg.version}.zip`);

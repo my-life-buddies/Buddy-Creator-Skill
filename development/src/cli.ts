@@ -25,7 +25,7 @@ import { CARDS, ROLE, SERVICE_RULES, SOURCE_KINDS } from "./rules.js";
 import { gates } from "./domain.js";
 import { detectHost } from "./host.js";
 import { withCompletion, completionSnapshot } from "./completion.js";
-import { assertSourceSupported, sourcePolicy, sourceView } from "./source-policy.js";
+import { assertSourceSupported, sourcePolicy, sourceView, sourceNeedsHostResult } from "./source-policy.js";
 import type { Session, WorkEnvelope, WorkItem } from "./types.js";
 
 const { values, positionals } = parseArgs({
@@ -297,6 +297,7 @@ async function call(store: Store, operation: string, args: Record<string, any>) 
         text: args.text,
         locale: args.locale,
         limit: args.limit,
+        hostResult: args.hostResult,
       };
       const { enqueueSource } = await import("./sources.js");
       const source = enqueueSource(store, request);
@@ -312,6 +313,9 @@ async function call(store: Store, operation: string, args: Record<string, any>) 
     if (operation === "source_retry") {
       const source = store.source(args.sourceId);
       assertSourceSupported(source.kind);
+      check(!sourceNeedsHostResult(source), "HOST_MEDIA_REQUIRED",
+        "请由宿主工具补齐音视频结果，以新的 operationId 重新 source_import；旧任务内容已冻结，重复重试不能补出缺失结果。",
+        { source: sourceView(source), recovery: sourcePolicy.mediaRecovery });
       worker(store, source.id);
       return {
         directive: "tool_pending",
@@ -389,17 +393,17 @@ async function main() {
   }
   if (command === "doctor") {
     const tools = await Promise.all(
-      ["node", "xcrun", "ffmpeg"].map(async (program) => {
+      ["node", "xcrun"].map(async (program) => {
         try {
           const { run } = await import("./sources.js");
           const version = await run(
             program,
-            program === "ffmpeg" ? ["-version"] : ["--version"],
+            ["--version"],
             10000,
           );
-          return { program, available: true, version: version.slice(0, 160) };
+          return { program, available: true, required: program === "node", purpose: program === "node" ? "local-workflow-preview" : "optional-scan-ocr", version: version.slice(0, 160) };
         } catch {
-          return { program, available: program === "node" ? true : false };
+          return { program, available: program === "node", required: program === "node", purpose: program === "node" ? "local-workflow-preview" : "optional-scan-ocr" };
         }
       }),
     );
@@ -413,7 +417,8 @@ async function main() {
         workbuddy: existsSync("/Applications/WorkBuddy.app"),
       },
       sourceKinds: SOURCE_KINDS,
-      note: "音视频本地转写需要 macOS 26 及对应语言的系统资源；视频处理还需要 FFmpeg。",
+      sourcePolicy,
+      note: "音视频由宿主实际可用的工具处理，Buddy 只保存返回结果，不检测或安装音视频系统资源。扫描件 OCR 可选使用 Apple Vision 与 Xcode Command Line Tools。",
     });
     return;
   }
@@ -496,8 +501,8 @@ async function main() {
     const preview = values["no-preview"]
       ? undefined
       : await startPreview(store, !values["no-browser"]);
-    for (const source of store.sourceList())
-      if (source.kind !== "xiaohongshu" && ["queued", "running"].includes(source.status)) worker(store, source.id);
+    for (const source of store.sourceList().map(sourceView))
+      if (["queued", "running"].includes(source.status)) worker(store, source.id);
     output({
       buddyId: state.buddyId,
       host,
@@ -507,7 +512,7 @@ async function main() {
       operationEpoch: session.epoch,
       workspaceAccess: workspaceAccess(store.directory),
       preview,
-      sourceIssues: store.sourceList().filter((s) => s.kind === "xiaohongshu" && s.status !== "ready").map(sourceView),
+      sourceIssues: store.sourceList().map(sourceView).filter((s) => s.status === "failed"),
       protocol: protocol(store),
       next,
     });

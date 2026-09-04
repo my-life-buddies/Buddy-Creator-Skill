@@ -12,8 +12,8 @@
 
 ## 下载完整 Skill
 
-- [下载 buddy-creator 0.2.1](https://github.com/my-life-buddies/Buddy-Journalist-Skill/releases/download/v0.2.1/buddy-creator-0.2.1.zip)
-- [SHA-256 校验文件](https://github.com/my-life-buddies/Buddy-Journalist-Skill/releases/download/v0.2.1/buddy-creator-0.2.1.zip.sha256)
+- [下载 buddy-creator 0.2.2](https://github.com/my-life-buddies/Buddy-Journalist-Skill/releases/download/v0.2.2/buddy-creator-0.2.2.zip)
+- [SHA-256 校验文件](https://github.com/my-life-buddies/Buddy-Journalist-Skill/releases/download/v0.2.2/buddy-creator-0.2.2.zip.sha256)
 
 ZIP 内包含运行依赖和预览页面。解压后，将 `buddy-creator` 目录放入宿主的技能目录；WorkBuddy 可使用“添加技能 → 上传技能”导入。Skill 的调用名称是 **buddy-creator**。
 
@@ -32,11 +32,14 @@ ZIP 内包含运行依赖和预览页面。解压后，将 `buddy-creator` 目�
 
 ## 环境与续作
 
-- macOS，Node.js 22.13+；本次完整包在 Apple Silicon 构建。
+- 当前支持 macOS，需要 Node.js 22.13+ 和可执行本地命令的宿主。完整包包含在 Apple Silicon 构建的可选原生 PDF 依赖，其他架构仍需适配与验证。
 - 推理由宿主主 agent 提供，无需另配模型账号或注册企业 Expert。
 - 新创作自动建立独立目录。继续当前项目使用已保存的 workspace；明确提供已有 buddyid 时也可按 ID 续作。
 - 项目、原话、来源和确认记录保存在 skill 目录之外。更新 skill 不清空项目。
-- 音视频处理需要相应 macOS 资源；视频另需 FFmpeg。三个宿主的实际导入、原生标注和完整交互仍需分别验收。
+- 音视频转写与画面提取使用宿主实际可用的工具，本包不再内置这些能力，也不要求为此安装 FFmpeg 或使用 macOS 26。
+- 宿主将真实处理结果连同原始来源和时间位置交回本地保存；没有可用工具时，请用户提供转写文件，不虚构处理结果，也不自动安装媒体工具。
+- 扫描件 OCR 保留 Apple Vision，按需使用 Xcode Command Line Tools；普通访谈不需要这项工具。
+- Codex、Claude Code、WorkBuddy 的实际导入、原生标注和完整交互仍需分别验收。
 
 本版本不包含模拟 coding CLI 交接与小红书账号采集。用户自行提供的本地材料仍可整理。
 

@@ -210,11 +210,12 @@ export class Workflow {
           return true;
         }
       });
-      const unsupported = waiting.map((id) => sourceView(this.store.source(id))).filter((s) => s.kind === "xiaohongshu");
-      if (unsupported.length) return {
-        directive: "source_action_required", sourceIds: unsupported.map((s) => s.id),
-        message: sourcePolicy.recovery,
-        recovery: "用 interview 处理创作者对来源计划的选择后，再重试 knowledge；不要宣称旧任务正在运行。",
+      const failed = waiting.map((id) => sourceView(this.store.source(id))).filter((s) => s.status === "failed");
+      if (failed.length) return {
+        directive: "source_action_required", sourceIds: failed.map((s) => s.id),
+        sources: failed,
+        message: failed.map((s) => s.error ?? "资料未能完整处理。").join("\n"),
+        recovery: "按每项来源的错误恢复：宿主音视频结果不完整时使用宿主工具补齐，以新的 operationId 导入；其他工具失败处理原因后 source_retry。来源计划的范围变更由创作者决定，再用 interview 保存；不要宣称失败任务正在运行。",
       };
       if (waiting.length)
         return {

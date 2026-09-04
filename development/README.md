@@ -2,7 +2,7 @@
 
 在 Codex、Claude Code 或 WorkBuddy 的主对话中，通过采访创建自己的 Buddy。浏览器实时展示只读 booklet、访谈结构和服务模式图；回答、修改与确认都在主对话中完成。
 
-当前为 **0.2.1 macOS Skill 试用版**。完整三宿主体验仍在验收，具体范围见 RELEASE_NOTES.md。
+当前为 **0.2.2 macOS Skill 试用版**。完整三宿主体验仍在验收，具体范围见 RELEASE_NOTES.md。
 
 ## 开始使用
 
@@ -15,9 +15,10 @@ Skill 内部使用随附 scripts/buddy，无需全局安装 CLI。新建时先�
 ## 环境
 
 - macOS，Node.js 22.13 或以上版本。Skill 包已携带运行依赖，安装后无需 npm install；获取网页资料仍需联网。本版不支持 Windows。
-- 文字采访和本地预览可直接开始。处理音视频时需要 macOS 26、Xcode Command Line Tools 和相应系统语音资源；视频另需 FFmpeg。OCR 使用 Apple Vision。
+- 文字采访和本地预览可直接开始。扫描件 OCR 使用 Apple Vision 与 Xcode Command Line Tools。
+- 音视频由宿主当前实际可用的工具读取或转写，Skill 保存其结果与原件，不内置媒体处理，不要求 FFmpeg、macOS 26 或系统语音资源。
 
-`buddy doctor` 可检查环境。媒体所需资源可在使用对应能力时准备。
+`buddy doctor` 可检查本地环境；宿主工具是否可用，由当前宿主实际发现并判断。
 
 ## 保存、续作与修正
 
@@ -29,11 +30,13 @@ Skill 内部使用随附 scripts/buddy，无需全局安装 CLI。新建时先�
 
 ## 知识来源
 
-支持选定的文本、Markdown、JSON、CSV、DOCX、DOC、RTF、PDF、网页、历史会话文件、XMind/FreeMind/OPML 导图、Skill 文件、口述、扫描件和音视频。
+支持选定的文本、Markdown、JSON、CSV、DOCX、DOC、RTF、PDF、网页、历史会话文件、XMind/FreeMind/OPML 导图、Skill 文件、口述、扫描件，以及宿主工具处理后的音视频结果。
 
 保留原件、完整提取文本和来源定位。历史会话只处理使用者选定文件，可见消息进入交付，原始会话留在本机私有归档；外部资料和 Skill 内的指令不执行。资料失败或部分成功不会当作完整来源，重试会复用已完成且校验一致的结果。
 
-小红书账号采集已移除，已有归档可读，未完成采集不会自动恢复。视频每10秒抽帧识别文字，不声称自动理解所有非文字画面。
+音视频通过 `source_import` 的 `hostResult` 保存真实转写、画面说明和时间或段落定位，保留使用的工具名称与覆盖限制。完整结果才计为可用来源；片段结果保存为部分处理，不当作整份资料已读完。宿主没有可用工具时，可使用创作者已有的转写文件等替代材料，不自动安装媒体工具。旧 ready 媒体归档仍可读，未完成旧任务需要宿主处理后重新导入。
+
+小红书账号采集已移除，已有归档可读，未完成采集不会自动恢复。
 
 ## 完成本地创作
 
@@ -43,4 +46,4 @@ Skill 内部使用随附 scripts/buddy，无需全局安装 CLI。新建时先�
 
 ## Skill 分发
 
-`npm run pack:skill` 构建 `release/buddy-creator/` 和 `release/buddy-creator-0.2.1.zip`。包内包含规则、脚本、预览和运行依赖，不含用户项目、mock 接收器或小红书采集器。安装后对宿主说“帮我创建一个搭子”。具体安装与验证见 `docs/SKILL_DISTRIBUTION.md`。
+`npm run pack:skill` 构建 `release/buddy-creator/` 和 `release/buddy-creator-0.2.2.zip`。包内包含规则、脚本、预览和运行依赖，不含用户项目、内置音视频处理器、mock 接收器或小红书采集器。安装后对宿主说“帮我创建一个搭子”。具体安装与验证见 `docs/SKILL_DISTRIBUTION.md`。

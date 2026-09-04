@@ -3,11 +3,22 @@ import { SOURCE_KINDS } from "./rules.js";
 import type { SourceManifest } from "./types.js";
 
 export const sourcePolicy = {
-  version: 2,
+  version: 3,
   supportedKinds: SOURCE_KINDS,
+  hostProcessedKinds: ["audio", "video"],
+  mediaRecovery: "音视频由宿主实际可用的工具处理。将真实结果通过 source_import 的 hostResult 保存；没有可用工具时，可由创作者提供转写文件。不得自动安装音视频处理程序或把未处理的材料标为已读。",
   legacyReadOnlyKinds: ["xiaohongshu"],
   recovery: "此版本不再采集小红书账号。可提供本地文件或粘贴原文；根据创作者选择调整来源计划，保留历史材料和确认记录。",
 };
+
+export function isHostMedia(kind: string): boolean {
+  return sourcePolicy.hostProcessedKinds.includes(kind);
+}
+
+export function sourceNeedsHostResult(source: SourceManifest): boolean {
+  return isHostMedia(source.kind) && source.status !== "ready" &&
+    (!source.extraction || source.extraction.coverage !== "complete");
+}
 
 export function assertSourceSupported(kind: string) {
   check((SOURCE_KINDS as readonly string[]).includes(kind), "SOURCE_UNSUPPORTED",
@@ -24,6 +35,12 @@ export function assertWebSourceSupported(uri: string) {
 
 /** Read-only projection: never rewrite archived manifests or source-plan decisions on upgrade. */
 export function sourceView(source: SourceManifest): SourceManifest {
+  if (sourceNeedsHostResult(source)) return {
+    ...source, status: "failed",
+    error: source.extraction ? "宿主仅提供了部分音视频结果，已保存，但尚未完整处理。" : sourcePolicy.mediaRecovery,
+    errorDetails: { code: source.extraction ? "HOST_MEDIA_INCOMPLETE" : "HOST_MEDIA_REQUIRED", originalStatus: source.status },
+    warnings: [...source.warnings, "请使用宿主工具补齐结果，以新的 operationId 导入；旧资料与确认记录保留。"],
+  };
   if (source.kind !== "xiaohongshu" || source.status === "ready") return source;
   return { ...source, status: "failed", error: sourcePolicy.recovery,
     errorDetails: { code: "SOURCE_UNSUPPORTED", originalStatus: source.status },

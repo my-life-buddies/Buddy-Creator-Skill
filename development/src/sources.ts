@@ -31,7 +31,7 @@ import {
 } from "./io.js";
 import type { SourceKind, SourceManifest } from "./types.js";
 import type { Store } from "./store.js";
-import { assertSourceSupported, assertWebSourceSupported } from "./source-policy.js";
+import { assertSourceSupported, assertWebSourceSupported, isHostMedia, sourcePolicy } from "./source-policy.js";
 
 export type SourceRequest = {
   operationId: string;
@@ -41,8 +41,35 @@ export type SourceRequest = {
   text?: string;
   locale?: string;
   limit?: number;
+  hostResult?: HostMediaResult;
+};
+export type HostMediaResult = {
+  tool: string;
+  parts: Part[];
+  coverage: "complete" | "partial";
+  notes?: string[];
 };
 export type Part = { text: string; locator: string };
+
+function validateHostMediaResult(request: SourceRequest): HostMediaResult {
+  const result = request.hostResult;
+  check(result, "HOST_MEDIA_REQUIRED", sourcePolicy.mediaRecovery, {
+    kind: request.kind,
+    required: "hostResult: {tool, coverage, parts: [{text, locator}], notes?}",
+  });
+  check(typeof request.uri === "string" && request.uri.trim(), "SOURCE_LOCATION",
+    "请同时提供创作者选定的本地音视频原件路径，供结果关联与归档。");
+  check(typeof result.tool === "string" && result.tool.trim() &&
+    ["complete", "partial"].includes(result.coverage), "HOST_MEDIA_RESULT",
+    "请如实记录实际使用的宿主工具及 complete / partial 处理范围。");
+  check(Array.isArray(result.parts) && result.parts.length && result.parts.every((part) =>
+    part && typeof part.text === "string" && part.text.trim() &&
+    typeof part.locator === "string" && part.locator.trim()), "HOST_MEDIA_RESULT",
+    "宿主结果需包含实际取得的文字和位置；无时间戳时使用段落位置并注明 time=unavailable，不虚构定位。");
+  check(result.notes === undefined || (Array.isArray(result.notes) && result.notes.every((note) =>
+    typeof note === "string")), "HOST_MEDIA_RESULT", "处理限制应以 notes 文字列表保存。");
+  return result;
+}
 export function run(
   program: string,
   args: string[],
@@ -183,14 +210,13 @@ export function parseHistory(text: string): Part[] {
 }
 export async function nativeMedia(
   store: Store,
-  command: "ocr" | "transcribe",
+  command: "ocr",
   path: string,
-  locale = "zh-CN",
 ): Promise<Part[]> {
   check(
     process.platform === "darwin",
     "MACOS_REQUIRED",
-    "扫描件和本地转写使用 macOS 系统能力。",
+    "扫描件 OCR 使用 macOS 系统能力。",
   );
   const source = fileURLToPath(
     new URL("../native/Media.swift", import.meta.url),
@@ -198,7 +224,6 @@ export async function nativeMedia(
   const cacheIdentity = {
     command,
     inputHash: hash(readFileSync(path)),
-    locale,
     helperHash: hash(readFileSync(source)),
   };
   const resultPath = store.path(
@@ -254,7 +279,7 @@ export async function nativeMedia(
     );
   }
   const output = JSON.parse(
-    await run(executable, [command, path, locale], 1800000),
+    await run(executable, [command, path], 1800000),
   ) as { parts: Part[] };
   check(
     output.parts?.some((p) => p.text.trim()),
@@ -345,149 +370,17 @@ async function parseLocal(
   ) {
     parts = await nativeMedia(store, "ocr", path);
     parser = "apple-vision-v1";
-  } else if (kind === "audio" || kind === "video") {
-    let audioPath = path;
-    let hasAudio = true;
-    if (kind === "video") {
-      const probe = JSON.parse(
-        await run("ffprobe", [
-          "-v",
-          "error",
-          "-show_entries",
-          "stream=codec_type:format=duration",
-          "-of",
-          "json",
-          path,
-        ]),
-      ) as { streams: { codec_type: string }[]; format: { duration: string } };
-      hasAudio = probe.streams.some((s) => s.codec_type === "audio");
-      if (hasAudio) {
-        audioPath = store.path(".tools", `${hash(original)}.wav`);
-        mkdirSync(join(audioPath, ".."), { recursive: true });
-        await run(
-          "ffmpeg",
-          [
-            "-nostdin",
-            "-v",
-            "error",
-            "-y",
-            "-i",
-            path,
-            "-vn",
-            "-ac",
-            "1",
-            "-ar",
-            "16000",
-            audioPath,
-          ],
-          600000,
-        );
-      }
-      const frames = store.path(
-        ".tools",
-        `frames-${hash(original).slice(0, 24)}`,
-      );
-      mkdirSync(frames, { recursive: true });
-      await run(
-        "ffmpeg",
-        [
-          "-nostdin",
-          "-v",
-          "error",
-          "-y",
-          "-i",
-          path,
-          "-vf",
-          "fps=1/10,scale=1200:-1",
-          "-q:v",
-          "3",
-          join(frames, "frame-%06d.jpg"),
-        ],
-        600000,
-      );
-      let fallback = false;
-      let names = readdirSync(frames)
-        .filter((n) => n.endsWith(".jpg"))
-        .sort();
-      if (!names.length) {
-        fallback = true;
-        await run("ffmpeg", [
-          "-nostdin",
-          "-v",
-          "error",
-          "-y",
-          "-i",
-          path,
-          "-frames:v",
-          "1",
-          join(frames, "frame-000001.jpg"),
-        ]);
-        names = ["frame-000001.jpg"];
-      }
-      for (let n = 0; n < names.length; n++) {
-        const file = join(frames, names[n]!);
-        extras.push({
-          name: `frame-${String(n).padStart(6, "0")}.jpg`,
-          data: readFileSync(file),
-        });
-        try {
-          const recognized = await nativeMedia(store, "ocr", file);
-          parts.push(
-            ...recognized.map((p) => ({
-              text: p.text,
-              locator: `frame=${n + 1};time≈${fallback ? 0 : Math.min(n * 10 + 5, Number(probe.format.duration))}s`,
-            })),
-          );
-        } catch (error) {
-          if (
-            !(error instanceof BuddyError) ||
-            error.code !== "EMPTY_TRANSCRIPT"
-          )
-            throw error;
-        }
-      }
-      extras.push({
-        name: "frame-index.json",
-        data: Buffer.from(
-          JSON.stringify({
-            sampling:
-              "one frame per 10 seconds, midpoint selection; first frame fallback for short videos",
-            durationSeconds: Number(probe.format.duration),
-            frames: names.length,
-          }),
-        ),
-      });
-      warnings.push(
-        "画面按每10秒一帧抽样归档并识别文字；非文字视觉含义未自动归纳，原视频完整保留，必要时需结合原片校准。",
-      );
-    }
-    if (hasAudio) {
-      try {
-        parts.push(
-          ...(await nativeMedia(
-            store,
-            "transcribe",
-            audioPath,
-            request.locale,
-          )),
-        );
-      } catch (error) {
-        if (
-          kind !== "video" ||
-          !(error instanceof BuddyError) ||
-          error.code !== "EMPTY_TRANSCRIPT" ||
-          !parts.length
-        )
-          throw error;
-        warnings.push("音轨未识别到文字；本来源仅采用已识别的画面文字。");
-      }
-    }
-    parser =
-      kind === "video"
-        ? "apple-speech+sampled-vision-v1"
-        : "apple-speech-on-device-v1";
+  } else if (isHostMedia(kind)) {
+    const result = validateHostMediaResult(request);
+    parts = result.parts;
+    parser = "host-media-result-v1";
+    extras.push({
+      name: "host-result.json",
+      data: Buffer.from(JSON.stringify(result, null, 2)),
+    });
     warnings.push(
-      "自动转写可能存在识别误差；知识归纳须引用时间位置并由创作者校准。",
+      "音视频内容来自宿主工具的处理结果；仅在已提供的定位和覆盖范围内引用，归纳仍需创作者校准。",
+      ...(result.notes ?? []),
     );
   } else if (extension === ".pdf") {
     const pdf = await import("pdfjs-dist/legacy/build/pdf.mjs");
@@ -659,6 +552,8 @@ export function enqueueSource(
   request: SourceRequest,
 ): SourceManifest {
   assertSourceSupported(request.kind);
+  if (isHostMedia(request.kind)) validateHostMediaResult(request);
+  else check(request.hostResult === undefined, "HOST_RESULT_KIND", "hostResult 仅用于 audio / video 来源。");
   if (request.kind === "webpage" && request.uri) assertWebSourceSupported(request.uri);
   safeId(request.operationId);
   check(
@@ -696,6 +591,12 @@ export function enqueueSource(
     attempt: 0,
     warnings: [],
     parser: "",
+    ...(request.hostResult ? { extraction: {
+      provider: "host" as const,
+      tool: request.hostResult.tool,
+      coverage: request.hostResult.coverage,
+      notes: request.hostResult.notes,
+    } } : {}),
     processing: {
       acquisition: "queued",
       parsing: "not_started",
@@ -771,6 +672,10 @@ export async function processSource(store: Store, sourceId: string) {
         let parts: Part[] = [];
         manifest.files = [];
         manifest.warnings = [];
+        if (isHostMedia(request.kind)) {
+          const result = validateHostMediaResult(request);
+          manifest.extraction = { provider: "host", tool: result.tool, coverage: result.coverage, notes: result.notes };
+        }
         if (request.kind === "oral") {
           parts = [{ text: request.text!, locator: "creator-oral" }];
           save("oral.txt", request.text!);
@@ -866,6 +771,9 @@ export async function processSource(store: Store, sourceId: string) {
           parts.map((p) => `[${p.locator}]\n${p.text}`).join("\n\n"),
         );
         save("chunks.json", JSON.stringify(manifest.chunks, null, 2));
+        check(!isHostMedia(request.kind) || request.hostResult?.coverage === "complete",
+          "HOST_MEDIA_INCOMPLETE", "宿主仅提供了部分音视频结果，已保存原件与结果，但尚未完整处理。请补齐后以新的 operationId 导入，不重复重试相同的部分结果。",
+          { recovery: sourcePolicy.mediaRecovery });
         manifest.status = "ready";
         manifest.processing!.parsing = "complete";
         manifest.version = `sourcev_${hash({ files: manifest.files, parser: manifest.parser }).slice(0, 28)}`;
