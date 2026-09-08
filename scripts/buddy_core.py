@@ -237,16 +237,19 @@ def gates(state, stage):
 
 
 def can_draft(state, stage):
-    return all(g['pass'] for g in gates(state, stage)) and (stage != 'service' or confirmed(state, 'service.blueprint'))
+    import interview
+    return not interview.blockers(state, stage) and all(g['pass'] for g in gates(state, stage)) and (stage != 'service' or confirmed(state, 'service.blueprint'))
 
 
 def askable(state, target_id):
+    import interview
     cards = catalog()['cards']
     require(target_id in cards, 'UNKNOWN_TARGET', '未知采访目标。', {'targetId': target_id})
     card, target = cards[target_id], state['targets'][target_id]
     require(not state['paused'], 'PAUSED', '用户已暂停，先按用户原话恢复再提出新问题。')
     require(card['stage'] == state['stage'], 'STAGE_SCOPE', '不能提前采访其他阶段。')
-    require(target['status'] not in CLOSED and len(target['answerInputIds']) < card['maxAnswers'], 'FOLLOWUP_CLOSED', '该问题已收敛或达到追问上限；请整理已有内容，不能反复追问。', {'targetId': target_id})
+    require(target['status'] not in CLOSED, 'FOLLOWUP_CLOSED', '该目标已收敛或暂放；请整理已有内容，不能反复追问。', {'targetId': target_id})
+    interview.target_open(state, target_id)
     if target_id == 'K02':
         require(not state['sourcePlan']['discoveryClosed'], 'SOURCE_DISCOVERY_CLOSED', '用户已结束本轮来源发现，不应重复询问。')
     if card['stage'] == 'methods':
@@ -357,6 +360,7 @@ def record_confirmations(state, turn, records, modifying):
         evidence(state, record.get('evidence'), turn['inputId'])
         artifact = state['artifacts'].get(key)
         require(artifact and key in shown and artifact['hash'] == shown[key], 'CONFIRMATION_STALE', '确认只能对应上一条实际展示的当前版本，不能扩大范围或确认旧版。')
+        require(confirmation_ready(state, artifact), 'CONFIRMATION_BLOCKED', '对应内容还有关键缺口或阶段前置要求未完成，不能确认。')
         require(not artifact['unresolved'], 'UNRESOLVED', '产物还有未决项，先完成或忠实标明待补，不得伪造确认。', {'id': key, 'unresolved': artifact['unresolved']})
         allowed = {'accepted', 'rejected'} if artifact['kind'] == 'hypothesis' else {'confirmed'}
         require(record.get('decision') in allowed, 'DECISION_SCOPE', '方法候选使用 accepted/rejected，其他产物使用 confirmed。')
@@ -370,30 +374,44 @@ def record_confirmations(state, turn, records, modifying):
     state['stage'] = choose_stage(state)
 
 
+def confirmation_ready(state, artifact):
+    import interview
+    if artifact['unresolved']:
+        return False
+    if artifact['kind'] == 'chapter':
+        return can_draft(state, artifact['stage'])
+    if artifact['kind'] == 'blueprint':
+        return not interview.blockers(state, 'service') and all(g['pass'] for g in service_gates(state))
+    target_id = ('H' + artifact['id'].split('H')[-1].zfill(2) if artifact['kind'] == 'hypothesis'
+                 else artifact['id'].split('.', 1)[1] if artifact['kind'] == 'scenario' else None)
+    if artifact['kind'] == 'transition':
+        prefix = 'T.' + artifact['id'].split('.', 1)[1] + '.'
+        return not any(g['targetId'].startswith(prefix) for g in interview.blockers(state, 'service'))
+    return not interview.blockers(state, artifact['stage'], target_id)
+
+
 def delivery_record(state, proposal, delivery_id, input_id=None, opening=False, explanation=False):
+    import interview
     require(isinstance(proposal, dict) and text(proposal.get('text')), 'DELIVERY_REQUIRED', '需要给用户的公开回复 text。')
-    require(not set(proposal) - {'text', 'question', 'confirmationObjectIds', 'confirmationScope', 'mode'}, 'DELIVERY_SCHEMA', 'delivery 包含未支持字段；请按协议提交。')
+    require(not set(proposal) - {'text', 'question', 'confirmationObjectIds', 'confirmationScope', 'mode', 'blocked'}, 'DELIVERY_SCHEMA', 'delivery 包含未支持字段；请按协议提交。')
     question, ids = proposal.get('question'), proposal.get('confirmationObjectIds')
     if explanation:
-        require(not question and not ids, 'EXPLANATION_ONLY', '纯答疑保留原待答内容，不附加采访问题或确认。')
+        require(not question and not ids and not proposal.get('blocked'), 'EXPLANATION_ONLY', '纯答疑保留原待答内容，不附加采访问题或确认。')
     require(not (question and ids), 'ONE_REPLY_TARGET', '每轮一个核心问题或一次确认，不要同时提交两种。')
     result = {'id': delivery_id, 'text': proposal['text'], 'hash': digest(proposal['text']), 'createdAt': now(), 'mode': proposal.get('mode', 'ordinary'), 'inputId': input_id}
-    question_count = len(re.findall(r'[?？]', proposal['text']))
+    # The host checks one semantic reply target. Quoted questions and context
+    # length cannot reliably be judged by punctuation or character counts.
     if question:
-        require(isinstance(question, dict) and set(question) == {'targetId'}, 'QUESTION_SCHEMA', 'question 使用 {targetId:目标编号}。')
+        require(isinstance(question, dict) and 'targetId' in question and not set(question) - {'targetId', 'gapId'}, 'QUESTION_SCHEMA', 'question 使用 {targetId, gapId?}。')
         askable(state, question['targetId'])
         if result['mode'] == 'transition':
-            parts = re.split(r'\n\s*\n', proposal['text'].strip())
-            require(question['targetId'].startswith('T.') and len(parts) == 2 and re.match(r'^(接下来我们|这一轮我们|现在我们)', parts[0]) and parts[1].startswith('比如，') and question_count == 2 and 70 <= len(proposal['text']) <= 160, 'TRANSITION_STYLE', '路径采访使用两段、70—160 字，第二段以“比如，”开头；两个问句围绕同一个决定。')
-        elif not opening:
-            limit = 180 if result['mode'] == 'example' else 100
-            require(question_count == 1 and len(proposal['text']) <= limit, 'QUESTION_STYLE', '普通采访每轮一个问题，不超过100字；结合场景 example 不超过180字。长案例用确认对象正文，不塞入短问题。')
-        result['question'] = dict(question)
+            require(question['targetId'].startswith('T.'), 'TRANSITION_TARGET', 'transition 模式绑定当前服务路径的一个决定；自然表达，不要求固定段落。')
+        result['question'] = interview.question_gap(state, question) if interview.tracked(question['targetId']) else dict(question)
     elif ids:
         require(isinstance(ids, list) and ids and len(set(ids)) == len(ids), 'CONFIRMATION_SCHEMA', 'confirmationObjectIds 使用不重复的产物 ID 数组。')
-        require(question_count <= 1, 'ONE_REPLY_TARGET', '确认正文后最多一个核心确认问题。')
         artifacts = [state['artifacts'].get(key) for key in ids]
         require(all(artifacts), 'CONFIRMATION_MISSING', '请先保存确切的待确认版本。')
+        require(all(confirmation_ready(state, a) for a in artifacts), 'CONFIRMATION_BLOCKED', '还有关键缺口或阶段门槛未满足；不能将补问包装成版本确认。')
         require(len({a['stage'] for a in artifacts}) == 1, 'CONFIRMATION_SCOPE', '一次不能跨阶段确认。')
         require(not any(a['kind'] == 'hypothesis' for a in artifacts) or len(artifacts) == 1, 'HYPOTHESIS_ONE_AT_A_TIME', '方法候选每轮只展示并校准一条。')
         scope = proposal.get('confirmationScope', 'object')
@@ -401,9 +419,16 @@ def delivery_record(state, proposal, delivery_id, input_id=None, opening=False, 
         if scope == 'booklet':
             require(set(ids) == set(book_ids(artifacts[0]['stage'])), 'BOOKLET_INCOMPLETE', '整册确认必须包含该册全部固定章节。')
         result['confirmationTarget'] = {'scope': scope, 'stage': artifacts[0]['stage'], 'objects': [{'id': a['id'], 'hash': a['hash']} for a in artifacts]}
-    else:
-        require(question_count == 0, 'QUESTION_ID_REQUIRED', '回复中的采访问题必须绑定目标编号。')
-    if not explanation and not question and not ids and not state['paused'] and not all(book_confirmed(state, s) for s in catalog()['stages']):
+    blocked = proposal.get('blocked')
+    if blocked is not None:
+        require(text(blocked) and not question and not ids, 'BLOCKED_SCHEMA', 'blocked 是具体阻塞及恢复条件，只在无合法下一步时使用。')
+        options = available(state)
+        require(not options['questionTargets'] and not options['confirmationObjects'] and not options['canDraftBooklet'],
+                'NOT_BLOCKED', '还有可提问目标、可确认内容或可生成手册，须继续推进。')
+        require(not all(book_confirmed(state, s) for s in catalog()['stages']), 'NOT_BLOCKED', '访谈已完成，不是阻塞。')
+        result['blocked'] = blocked
+        state.pop('questionDeliveryId', None)
+    if not explanation and not question and not ids and not blocked and not state['paused'] and not all(book_confirmed(state, s) for s in catalog()['stages']):
         raise BuddyError('CONTINUATION_REQUIRED', '访谈还未完成：请在本轮给出下一条有效问题或确切内容确认，不能只回复“已保存”。若需要后台整理，先 draft_publish，再继续完成同一轮。')
     state['deliveries'][delivery_id] = result
     state['currentDeliveryId'] = delivery_id
@@ -422,11 +447,12 @@ def available(state):
             questions.append(target_id)
         except BuddyError:
             pass
-    return {'questionTargets': questions, 'confirmationObjects': [a['id'] for a in state['artifacts'].values() if a['stage'] == state['stage'] and not a['unresolved'] and not any(confirmed(state, a['id'], d) for d in ['confirmed', 'accepted', 'rejected'])], 'canDraftBooklet': can_draft(state, state['stage'])}
+    return {'questionTargets': questions, 'confirmationObjects': [a['id'] for a in state['artifacts'].values() if a['stage'] == state['stage'] and confirmation_ready(state, a) and not any(confirmed(state, a['id'], d) for d in ['confirmed', 'accepted', 'rejected'])], 'canDraftBooklet': can_draft(state, state['stage'])}
 
 
 def context(workspace, state):
-    return {'workspace': str(Path(workspace).resolve()), 'revision': state['revision'], 'stage': state['stage'], 'paused': state['paused'], 'pendingTurnId': state.get('pendingTurnId'), 'catalog': catalog(), 'gates': gates(state, state['stage']), 'continuation': available(state), 'state': state, 'contract': str(ROOT / 'references' / 'host-guide.md'), 'note': '宿主负责真实语义判断，runtime 仅校验结构、证据版本、状态与确认关系。每轮先保存原话，再整理、保存、展示并登记实际展示；不能替用户确认。'}
+    import interview
+    return {'workspace': str(Path(workspace).resolve()), 'revision': state['revision'], 'stage': state['stage'], 'paused': state['paused'], 'pendingTurnId': state.get('pendingTurnId'), 'catalog': catalog(), 'gates': gates(state, state['stage']), 'continuation': available(state), 'interviewGuidance': interview.guidance(state), 'state': state, 'contract': str(ROOT / 'references' / 'host-guide.md'), 'note': '宿主负责真实语义判断，runtime 仅校验结构、证据版本、状态与确认关系。每轮先保存原话，再整理、保存、展示并登记实际展示；不能替用户确认。'}
 
 
 def open_workspace(creation_key=None, workspace=None):
@@ -468,6 +494,7 @@ def active_turn(state, turn_id):
 
 
 def finish_turn(state, payload):
+    import interview
     turn = state['turns'].get(payload.get('turnId'))
     require(turn, 'TURN_NOT_FOUND', '未找到这一轮。')
     payload_hash = digest({k: v for k, v in payload.items() if k != 'operation'})
@@ -478,14 +505,25 @@ def finish_turn(state, payload):
     intent = payload.get('intent', 'answer')
     require(intent in {'answer', 'revision', 'confirmation', 'explanation', 'pause', 'resume'}, 'INTENT_SCHEMA', 'intent 使用 answer/revision/confirmation/explanation/pause/resume。')
     patch = payload.get('patch', {})
-    require(isinstance(patch, dict) and not set(patch) - {'targets', 'artifacts', 'confirmations', 'sourcePlan', 'serviceMode', 'serviceModelExplained', 'paused'}, 'PATCH_SCHEMA', 'patch 包含未支持字段。')
+    require(isinstance(patch, dict) and not set(patch) - {'targets', 'artifacts', 'confirmations', 'sourcePlan', 'serviceMode', 'serviceModelExplained', 'paused', 'interview'}, 'PATCH_SCHEMA', 'patch 包含未支持字段。')
     inp = state['inputs'][turn['inputId']]
     if intent == 'explanation':
         require(not patch, 'EXPLANATION_ONLY', '纯答疑不修改采访目标、产物或确认；需要修订时使用 revision。')
     replied = state['deliveries'].get(inp.get('replyToDeliveryId'), {})
     target_id = replied.get('question', {}).get('targetId')
+    interview_patch = patch.get('interview', {})
+    # Seed legacy counters before appending the current answer. Reading/opening a
+    # 1.0.0 project alone does not rewrite it or reopen settled targets.
+    if target_id and interview.tracked(target_id):
+        interview.ensure(state, target_id)
+    for changed_target in interview.prepare(state, interview_patch, inp, intent):
+        invalidate(state, book_ids(catalog()['cards'][changed_target]['stage']), turn['id'])
     if intent == 'answer' and target_id and inp['id'] not in state['targets'][target_id]['answerInputIds']:
         state['targets'][target_id]['answerInputIds'].append(inp['id'])
+        if interview.tracked(target_id):
+            interview.assess(state, target_id, replied['question'].get('gapId'), interview_patch.get('assessment'), inp)
+    else:
+        require('assessment' not in interview_patch, 'ASSESSMENT_SCOPE', '仅实际采访回答提交 assessment；解释、修订、确认和恢复不计次。')
     for proposal in patch.get('targets', []):
         require(isinstance(proposal, dict) and set(proposal) == {'id', 'status', 'summary', 'gaps', 'evidence'}, 'TARGET_SCHEMA', 'targets 每项使用 id/status/summary/gaps/evidence。')
         key = proposal['id']
@@ -496,12 +534,16 @@ def finish_turn(state, payload):
         if proposal['status'] == 'sufficient':
             require(proposal['evidence'], 'EVIDENCE_REQUIRED', '充分性判断必须有真实依据。')
         old = state['targets'][key]
+        require(not (old['status'] in CLOSED and proposal['status'] in {'unstarted', 'exploring'}),
+                'REOPEN_REQUIRED', '已收口目标不能直接重设为进行中；只有明确续谈请求可使用 interview.reopen。')
         if any(old.get(field) != proposal.get(field) for field in ('summary', 'status', 'gaps')):
             invalidate(state, book_ids(catalog()['cards'][key]['stage']), turn['id'])
         state['targets'][key].update(copy.deepcopy(proposal))
+    before_settle = {key: (value['status'], list(value['gaps'])) for key, value in state['targets'].items()}
+    interview.settle(state)
     for key, target in state['targets'].items():
-        if len(target['answerInputIds']) >= catalog()['cards'][key]['maxAnswers'] and target['status'] not in CLOSED:
-            target['status'] = 'exhausted'
+        if before_settle[key] != (target['status'], target['gaps']):
+            invalidate(state, book_ids(catalog()['cards'][key]['stage']), turn['id'])
     if 'sourcePlan' in patch:
         plan = patch['sourcePlan']
         require(isinstance(plan, dict) and set(plan) == {'sourceIds', 'requiredKinds', 'discoveryClosed'} and isinstance(plan['sourceIds'], list) and isinstance(plan['requiredKinds'], list) and isinstance(plan['discoveryClosed'], bool), 'SOURCE_PLAN_SCHEMA', 'sourcePlan 使用 sourceIds/requiredKinds/discoveryClosed。')
@@ -527,6 +569,7 @@ def finish_turn(state, payload):
             require(replied.get('question', {}).get('targetId') == proposal['id'][9:] and not proposal['unresolved'], 'SCENARIO_ANSWER_SCOPE', 'faithful_user_answer 只能忠实记录用户刚回答且完整的对应基础场景。')
             evidence(state, proposal['evidence'], inp['id'])
             artifact = state['artifacts'][proposal['id']]
+            require(confirmation_ready(state, artifact), 'CONFIRMATION_BLOCKED', '当前案例仍有关键缺口，不能自动确认。')
             state['confirmations'].append({'id': 'confirmation_' + digest([inp['id'], artifact['hash']])[:24], 'objectId': artifact['id'], 'hash': artifact['hash'], 'inputId': inp['id'], 'deliveryId': replied['id'], 'decision': 'confirmed', 'evidence': proposal['evidence']})
     state['stage'] = choose_stage(state)
     result = delivery_record(state, payload.get('delivery'), 'delivery_' + digest(turn['id'])[:24], inp['id'], explanation=intent == 'explanation')

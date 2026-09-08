@@ -1,11 +1,11 @@
-# 安装并启动 Buddy Creator Skill 1.0.0
+# 安装并启动 Buddy Creator Skill 1.3.0
 
 这是给当前宿主 agent 的安装入口。目标是在主对话中帮助创作者完成定义、知识、方法、服务四阶段创作，并打开本机只读预览。用户不需要填写 buddyid、选宿主或额外指定说话风格。
 
 ## 获取完整包
 
-- 安装包：[buddy-creator-1.0.0.zip](https://github.com/my-life-buddies/Buddy-Creator-Skill/releases/download/v1.0.0/buddy-creator-1.0.0.zip)
-- 校验文件：[buddy-creator-1.0.0.zip.sha256](https://github.com/my-life-buddies/Buddy-Creator-Skill/releases/download/v1.0.0/buddy-creator-1.0.0.zip.sha256)
+- 安装包：[buddy-creator-1.3.0.zip](https://github.com/my-life-buddies/Buddy-Creator-Skill/releases/download/v1.3.0/buddy-creator-1.3.0.zip)
+- 校验文件：[buddy-creator-1.3.0.zip.sha256](https://github.com/my-life-buddies/Buddy-Creator-Skill/releases/download/v1.3.0/buddy-creator-1.3.0.zip.sha256)
 - 仓库：[my-life-buddies/Buddy-Creator-Skill](https://github.com/my-life-buddies/Buddy-Creator-Skill)
 
 下载完整 ZIP 和校验文件，用可用工具核对 SHA-256 后解压。包内根目录为 `buddy-creator`，包含工具和预览资源，无需执行构建或安装第三方依赖。下载或校验失败时报告实际错误，不把未取得的包说成已安装。

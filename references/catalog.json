@@ -102,9 +102,10 @@
     "K03": {
       "stage": "knowledge",
       "title": "隐性经验",
-      "minimum": "一次具体判断或做法及适用条件，可标待补",
-      "maxAnswers": 2,
-      "hard": false
+      "minimum": "当前核心任务相关经验的具体含义、适用条件及原话或材料依据；线索本身不算已讲清，具体执行在方法阶段校准",
+      "maxAnswers": 6,
+      "hard": false,
+      "reviewAfter": 4
     },
     "K04": {
       "stage": "knowledge",
@@ -117,29 +118,33 @@
       "stage": "methods",
       "title": "初次求助",
       "minimum": "用户先答：关键判断、下一步、依据",
-      "maxAnswers": 3,
-      "hard": true
+      "maxAnswers": 6,
+      "hard": true,
+      "reviewAfter": 4
     },
     "M02": {
       "stage": "methods",
       "title": "行动受阻",
       "minimum": "用户先答：取舍、调整及依据",
-      "maxAnswers": 3,
-      "hard": true
+      "maxAnswers": 6,
+      "hard": true,
+      "reviewAfter": 4
     },
     "M03": {
       "stage": "methods",
       "title": "责任边缘",
       "minimum": "用户先答：继续范围或停止条件及依据",
-      "maxAnswers": 3,
-      "hard": true
+      "maxAnswers": 6,
+      "hard": true,
+      "reviewAfter": 4
     },
     "M04": {
       "stage": "methods",
       "title": "明确越界",
       "minimum": "用户先答：不承担的要求及既有边界关系",
-      "maxAnswers": 3,
-      "hard": true
+      "maxAnswers": 6,
+      "hard": true,
+      "reviewAfter": 4
     },
     "H01": {
       "stage": "methods",
@@ -173,22 +178,25 @@
       "stage": "methods",
       "title": "现实约束变化",
       "minimum": "四基础场景已确认；只变一个条件；复用已知具体动作，说清执行顺序、受阻时的替代与可观察结果，再校准推导",
-      "maxAnswers": 3,
-      "hard": true
+      "maxAnswers": 6,
+      "hard": true,
+      "reviewAfter": 4
     },
     "E02": {
       "stage": "methods",
       "title": "原则冲突",
       "minimum": "只变一个条件；说明原则取舍后具体怎样行动、怎样表达及何时调整，再由创作者校准",
-      "maxAnswers": 3,
-      "hard": true
+      "maxAnswers": 6,
+      "hard": true,
+      "reviewAfter": 4
     },
     "E03": {
       "stage": "methods",
       "title": "边界或风险变化",
       "minimum": "只变一个条件；把责任边界落实为停止什么、接着怎样回应及允许的下一步，再由创作者校准",
-      "maxAnswers": 3,
-      "hard": true
+      "maxAnswers": 6,
+      "hard": true,
+      "reviewAfter": 4
     },
     "S01": {
       "stage": "service",
@@ -257,97 +265,97 @@
       "stage": "service",
       "title": "服务模式与规划方式",
       "minimum": "先解释固定模式，创作者选择智能规划或逐项讨论；答疑不计为服务采访回答",
-      "maxAnswers": 9007199254740991,
+      "maxAnswers": 3,
       "hard": true
     },
     "R00": {
       "stage": "service",
       "title": "本次优化方向",
       "minimum": "四册完成后，了解本次明确希望修改的范围",
-      "maxAnswers": 9007199254740991,
+      "maxAnswers": 3,
       "hard": false
     },
     "T.acquisition-paid.1": {
       "stage": "service",
       "title": "acquisition-paid：时点",
-      "minimum": "基于已确认服务的具体场景；两段只讨论同一决定；已知则不再问",
+      "minimum": "基于已确认服务，说明本路径何时发生及触发条件；已知则不再问",
       "maxAnswers": 3,
       "hard": true
     },
     "T.acquisition-paid.2": {
       "stage": "service",
       "title": "acquisition-paid：权益",
-      "minimum": "基于已确认服务的具体场景；两段只讨论同一决定；已知则不再问",
+      "minimum": "基于已确认服务，说明本路径发生后继续或停止哪些服务；已知则不再问",
       "maxAnswers": 3,
       "hard": true
     },
     "T.acquisition-paid.3": {
       "stage": "service",
       "title": "acquisition-paid：表达",
-      "minimum": "基于已确认服务的具体场景；两段只讨论同一决定；已知则不再问",
+      "minimum": "基于已确认服务，说明怎样向用户讲清本路径的变化和选择；已知则不再问",
       "maxAnswers": 3,
       "hard": true
     },
     "T.acquisition-maintenance.1": {
       "stage": "service",
       "title": "acquisition-maintenance：时点",
-      "minimum": "基于已确认服务的具体场景；两段只讨论同一决定；已知则不再问",
+      "minimum": "基于已确认服务，说明本路径何时发生及触发条件；已知则不再问",
       "maxAnswers": 3,
       "hard": true
     },
     "T.acquisition-maintenance.2": {
       "stage": "service",
       "title": "acquisition-maintenance：权益",
-      "minimum": "基于已确认服务的具体场景；两段只讨论同一决定；已知则不再问",
+      "minimum": "基于已确认服务，说明本路径发生后继续或停止哪些服务；已知则不再问",
       "maxAnswers": 3,
       "hard": true
     },
     "T.acquisition-maintenance.3": {
       "stage": "service",
       "title": "acquisition-maintenance：表达",
-      "minimum": "基于已确认服务的具体场景；两段只讨论同一决定；已知则不再问",
+      "minimum": "基于已确认服务，说明怎样向用户讲清本路径的变化和选择；已知则不再问",
       "maxAnswers": 3,
       "hard": true
     },
     "T.paid-paid.1": {
       "stage": "service",
       "title": "paid-paid：时点",
-      "minimum": "基于已确认服务的具体场景；两段只讨论同一决定；已知则不再问",
+      "minimum": "基于已确认服务，说明本路径何时发生及触发条件；已知则不再问",
       "maxAnswers": 3,
       "hard": true
     },
     "T.paid-paid.2": {
       "stage": "service",
       "title": "paid-paid：权益",
-      "minimum": "基于已确认服务的具体场景；两段只讨论同一决定；已知则不再问",
+      "minimum": "基于已确认服务，说明本路径发生后继续或停止哪些服务；已知则不再问",
       "maxAnswers": 3,
       "hard": true
     },
     "T.paid-paid.3": {
       "stage": "service",
       "title": "paid-paid：表达",
-      "minimum": "基于已确认服务的具体场景；两段只讨论同一决定；已知则不再问",
+      "minimum": "基于已确认服务，说明怎样向用户讲清本路径的变化和选择；已知则不再问",
       "maxAnswers": 3,
       "hard": true
     },
     "T.paid-maintenance.1": {
       "stage": "service",
       "title": "paid-maintenance：时点",
-      "minimum": "基于已确认服务的具体场景；两段只讨论同一决定；已知则不再问",
+      "minimum": "基于已确认服务，说明本路径何时发生及触发条件；已知则不再问",
       "maxAnswers": 3,
       "hard": true
     },
     "T.paid-maintenance.2": {
       "stage": "service",
       "title": "paid-maintenance：权益",
-      "minimum": "基于已确认服务的具体场景；两段只讨论同一决定；已知则不再问",
+      "minimum": "基于已确认服务，说明本路径发生后继续或停止哪些服务；已知则不再问",
       "maxAnswers": 3,
       "hard": true
     },
     "T.paid-maintenance.3": {
       "stage": "service",
       "title": "paid-maintenance：表达",
-      "minimum": "基于已确认服务的具体场景；两段只讨论同一决定；已知则不再问",
+      "minimum": "基于已确认服务，说明怎样向用户讲清本路径的变化和选择；已知则不再问",
       "maxAnswers": 3,
       "hard": true
     }
@@ -382,5 +390,12 @@
       "inheritHistory": true,
       "defaultConfirmed": true
     }
+  },
+  "interviewPolicy": {
+    "gapMaxAnswers": 3,
+    "noGainLimit": 2,
+    "deepReviewAfter": 4,
+    "deepMaxAnswers": 6,
+    "sourceDiscovery": "explicit_creator_closure"
   }
 }

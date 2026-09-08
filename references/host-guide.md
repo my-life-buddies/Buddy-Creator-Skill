@@ -1,6 +1,8 @@
-# 宿主调用协议 · Buddy Creator Skill 1.0.0
+# 宿主调用协议 · Buddy Creator Skill 1.3.0
 
-采访始终在宿主主对话中进行。随附程序只负责保存、校验、预览与成果整理；不调用模型、不创建另一个采访 agent。此文件定义 1.0.0 接口，不能混用旧 Node 0.x 版本的 sessionId、workToken、artifact_confirm 或 source_retry。
+采访始终在宿主主对话中进行。随附程序只负责保存、校验、预览与成果整理；不调用模型、不创建另一个采访 agent。此文件定义 1.3.0 接口，不能混用旧 Node 0.x 版本的 sessionId、workToken、artifact_confirm 或 source_retry。
+
+目标的 summary 和 interview.assessment.summary 仍需准确保存；它们是内容记录与判断结论，不是每轮对外话术模板。delivery.text 可以直接接着原话提问，不必把内部摘要先复述一遍。表达原则和连续示例分别见 [访谈规则](interview.md) 与 [对话示例](dialogue-examples.md)。本次表达调整不改变接口字段、回答计数或确认门槛。
 
 ## 1. 调用入口
 
@@ -64,15 +66,19 @@ patch 各数组仅包含本次变更，不必重复发送全部存量：
 - `sourcePlan`：`{sourceIds,requiredKinds,discoveryClosed}`。来源范围与发现结束来自创作者实际选择，不为过门槛移除失败来源。
 - `serviceMode`、`serviceModelExplained`：按创作者真实选择与已完成的通俗说明保存。serviceMode 为 smart（智能规划）或 guided（逐项讨论），serviceModelExplained 为布尔值。先解释三阶段，再选择规划方式。
 - `paused`：仅在用户明确暂停时设置 true，继续创作时根据真实意图恢复。
+- `interview`：本轮缺口判断与有依据的补充，见下节。它不替代 targets 摘要或正式确认。
 
 引用 Ref 形状：`{type,id,hash,quote?,locator?}`。type 为 input、source 或 artifact；hash 从已保存对象读取。input.hash 与来源 chunk.hash 使用原文 UTF-8 的 SHA-256；保留精确原话，不从模型概括生成用户证据。source 的引用 id 使用 manifest.id，hash 使用其中具体 chunk.hash，locator 使用该 chunk.locator；不能把每份来源中可能重名的 chunk_0001 当作全局来源 ID。用户 input 引用必须含非空、精确的 quote。来源事实与用户意见冲突时公开指出，不自行替用户确认。
 
 `delivery` 包含 `text`，并根据实际动作填写：
 
-- `question: {targetId}`：绑定本次唯一核心采访问题。
+- `question: {targetId, gapId?}`：绑定本次唯一核心采访问题。缺省 gapId 使用 `<targetId>.initial`；同一问题换措辞仍用原 gapId。其他缺口先在 interview.gaps 登记。K02 沿用来源发现协议。
 - `confirmationObjectIds: [对象ID]`：明确请求当前这些对象的版本确认；方法候选每轮仅一条，不能批量问整组。
 - `confirmationScope: "object" | "booklet"`：确认范围必须符合正文中实际展示与请求。
-- `mode`：ordinary、example、transition、booklet、opening 或 explanation。方法案例的具体执行正文用 booklet；普通问题不因此膨胀成多个问题。
+- `blocked`：只有 context.continuation 的 questionTargets、confirmationObjects 均为空且 canDraftBooklet=false 时，填写具体缺口和恢复条件；不得同时附问题或确认。不自动写 paused=true，也不声称有后台工作。
+- `mode`：ordinary、example、transition、booklet、opening 或 explanation。标识表达用途，不决定字数或段落模板。transition 的问题绑定 T. 路径目标；方法案例的具体执行正文用 booklet 并绑定确认对象。
+
+宿主先根据目标和缺口决定下一步，再按 [访谈表达](interview.md) 写出自然正文。上下文抽象时主动补一个容易进入的场景；已具体时直接接话。每轮只有一个语义上的核心待答内容，不在一个 targetId 下藏多道题。工具校验唯一绑定、证据和业务状态，不按字符数或问号数裁决表达：例如正文引用专家的“进展是什么？卡在哪儿？”后再问一个问题，可以有多个问号；解释原问题时也可引用问句，仍保留旧绑定而不新增采访问题。不要为通过工具校验删掉必要语境或把问题改成无标点列表。
 
 工具根据 artifact 当前 hash 建立交付中的 confirmationTarget，宿主不自行构造历史确认对象版本。新候选可在本轮写入并展示，但不能使用本轮之前的“ok”立刻确认；用户下一轮对这一已展示版本的明确回复才能确认。局部“免费部分可以”只记局部意见，不能确认为整个 service.blueprint 或服务手册。
 
@@ -80,11 +86,30 @@ patch 各数组仅包含本次变更，不必重复发送全部存量：
 
 章节、候选、场景、蓝图与路径的固定 ID、data 结构、依赖和服务门槛见 [产物字段](artifact-schema.md)。没有 kind:booklet；四册由 27 个固定 chapter 组成。
 
+### 3.1 interview 的具体字段
+
+`patch.interview` 可包含：
+
+- `assessment: {hasNewInformation, resolved, summary, evidence}`：除 K02 外，intent=answer 且在回答已展示采访问题时必填。前两项严格为布尔值；summary 简述新增内容或缺口为何仍未解决；evidence 必须含本轮精确原话 Ref。它自动对应上一条真实问题的 gapId，不允许宿主改绑定。解释、修订、确认、恢复不提交 assessment。
+- `gaps: [{id,targetId,description,impact,blocking,evidence}]`：只登记当前阶段、已有目标下的具体缺口。id 使用 `<targetId>.<英文小写字母/数字/下划线/短横线>`，后缀最长48位。description 是可公开的具体待补内容，impact 说明对本目标的影响，blocking 是布尔值；只有缺失会使当前结论或执行不成立时才为 true。evidence 必须指向真实已保存输入、来源或产物。已登记的编号与含义固定，不换名重问，也不提交状态或次数。
+- `resolutions: [{gapId,summary,evidence}]`：用户主动补充或修订已经解决旧缺口时使用；引用本轮真实原话及必要资料，只解除该缺口，不计次、不自动重开采访。同步修订受影响的目标摘要和产物。确认“先留着”不等于解决。
+- `reopen: {targetId,gapId,reason,evidence}`：仅 intent=resume/revision、用户本轮明确针对当前阶段已收口的目标要求深入时使用。绑定已有缺口，reason 写明所选范围，evidence 精确引用这条明确要求；普通“ok”“继续创作”、重启或资料导入不支持重开。工具保留历史并开启新的有限补充窗口；后续 question 使用这个 gapId。不要反复主动询问是否重开。
+
+工具返回 context.interviewGuidance 与 state.interview，供宿主读取具体计数与整理节点；仅在主对话生成必要的简短小结，预览不显示内部记录。达到边界时工具可以将目标转为 exhausted，自动将未解决描述加入 targets.gaps；这不等于充分或用户暂停。提交 sufficient 前，本目标已登记的具体缺口必须实际解决；不能用强行改状态抹去待补。
+
+未解决的 blocking 缺口阻止对应阶段 Booklet 和相关场景的正式确认，不能通过清空章节 unresolved 绕过。非关键待补仍如实写入手册，确认的是已有内容和明确范围。只达到次数上限时转向独立目标；确实无合法推进才使用 blocked。
+
+默认 initial 缺口取现有目标最低条件，并继承其 hard 门槛，可不单独登记。想深入另一个独立缺口时，先使用 gaps 给出依据，再让 question 绑定它。例如在 K03.initial 已经讲清经验含义后，确有适用条件缺口，可以登记 K03.conditions；它仍消耗同一个 K03 总次数。不能把“再讲一个例子”当作独立缺口。
+
+用户对待确认内容表示不确定时，不反复展示同一版本索要确认。确有必要澄清，下一问绑定对应 H/M/E/S/T 目标及具体 gapId，按普通问题计次；明确修正可直接整理，正式确认本身不计采访次数。不能将实际追问伪装成 revision 或 confirmation 以规避边界。
+
+升级接续：读取/open 不改旧项目；首次新提交补充内部记录，保留旧 answerInputIds、确认与关闭状态。此前未细分的回答保守归入 initial 缺口，不回算所谓新增信息，也不重置总次数。旧待答 delivery 没有 gapId 时仍可回答并提交 assessment。仅客户端重试、解释或暂停后继续不能自动重开旧 exhausted 目标。
+
 ## 4. 内容、阶段与可见草稿
 
 四个阶段顺序为 definition、knowledge、methods、service。阶段由有效确认和业务门槛决定，patch 不能直接设 stage 跳关。catalog.json 保存四阶段、27 章、目标最低条件、追问上限和服务规则；按当前阶段读取 definition/knowledge/methods/service.md，不把卡片中的示例当作用户内容。
 
-每条真实回答最多计一次；解释、改稿和版本确认不能伪装成新采访回答。01 每目标最多三次回答，02 普通目标两次；K02 必须明确结束或跳过。方法先逐条校准 3—4 候选、再四基础和三拓展，缺关键条件不能靠次数耗尽“确认”。基础案例先听真实判断；拓展仅变一个条件，保留已知操作，明确新推导待校准。
+每条真实回答最多计一次；解释、改稿和版本确认不能伪装成新采访回答。每缺口最多三次，目标连续两次无新增提前收口。K03 与 M/E 目标四次后整理，只有最新回答有新增且仍有 blocking 缺口才延长到最多六次；其他目标沿用 catalog 的二或三次。总次数跨缺口、跨宿主和跨重启累计；K02 仍需明确结束或跳过。方法先逐条校准 3—4 候选、再四基础和三拓展，缺关键条件不能靠次数耗尽“确认”。基础案例先听真实判断；拓展仅变一个条件，保留已知操作，明确新推导待校准。
 
 长内容可以调用 draft_publish，包含 `operation:"draft_publish"`、`turnId`、稳定 `operationId`、`artifacts:[...]`。同一草稿重试沿用 operationId；正文改变用新 operationId。只有当前工作可发布；草稿公开展示，不能包含隐藏思考、内部评分或尚未收到的输入。草稿不是正式确认对象，仍需 finish 提交版本后展示并确认。
 

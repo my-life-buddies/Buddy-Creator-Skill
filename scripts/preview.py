@@ -26,7 +26,7 @@ from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_ope
 
 ROOT = Path(__file__).resolve().parent.parent
 RUNTIME_VERSION = "buddy-creator-" + json.loads((ROOT / "version.json").read_text(encoding="utf-8"))["version"]
-COMPATIBLE_RUNTIME_VERSIONS = {RUNTIME_VERSION, "python-trial-1"}
+COMPATIBLE_RUNTIME_VERSIONS = {RUNTIME_VERSION, "buddy-creator-1.2.0", "buddy-creator-1.1.0", "buddy-creator-1.0.0", "python-trial-1"}
 STAGES = ("definition", "knowledge", "methods", "service")
 STAGE_LABELS = dict(zip(STAGES, ("定义", "知识", "方法", "服务")))
 LABELS = {"confirmed": "已确认", "accepted": "已采纳", "rejected": "未采纳",
@@ -207,6 +207,12 @@ def snapshot(workspace, state=None):
     if current_target and current_target.startswith("T."):
         pieces = current_target.split(".")
         topic_title = PATHS.get(pieces[1], "用户路径") + " / " + ("时点", "权益", "表达")[int(pieces[2]) - 1]
+    def target_summary(identifier):
+        item = targets.get(identifier, {})
+        summary = item.get("summary", "")
+        gaps = item.get("gaps", [])
+        return summary + (("\n\n" if summary else "") + "待补：" + "；".join(gaps) if gaps else "")
+
     current = {
         "stage": stage,
         "phase": "创作完成" if complete and not target_id and not focus else _phase(current_target or (focus or {}).get("id"), stage),
@@ -214,8 +220,8 @@ def snapshot(workspace, state=None):
                  (focus or {}).get("title") or topic_title or ("四本手册已完成" if complete else "整理方法候选" if stage == "methods" else "整理当前内容"),
         "targetId": current_target,
         "artifactIds": focus_ids,
-        "summary": targets.get(current_target, {}).get("summary", "") if current_target else "",
-        "status": "已暂停" if state.get("paused") else LABELS[focus["status"]] if focus else "已完成" if complete else "讨论中",
+        "summary": target_summary(current_target) if current_target else delivery.get("blocked", ""),
+        "status": "已暂停" if state.get("paused") else "待补充" if delivery.get("blocked") else LABELS[focus["status"]] if focus else "已完成" if complete else "讨论中",
     }
     if focus and focus["kind"] == "hypothesis":
         current["position"] = {"index": next(i + 1 for i, a in enumerate(hypotheses) if a["id"] == focus["id"]), "total": len(hypotheses)}
@@ -226,10 +232,10 @@ def snapshot(workspace, state=None):
         target = targets.get(identifier, {})
         return {"id": identifier,
                 "title": artifact["title"] if artifact and artifact["kind"] == "hypothesis" else cards.get(identifier, {}).get("title", identifier),
-                "summary": target.get("summary", ""), "artifactId": object_id,
+                "summary": target_summary(identifier), "artifactId": object_id,
                 "current": identifier == current_target or bool(object_id and object_id in focus_ids),
                 "status": LABELS[artifact["status"]] if artifact else "已记录" if target.get("status") == "sufficient"
-                else "已跳过" if target.get("status") == "skipped" else "待补充" if target.get("summary") else "未开始"}
+                else "已跳过" if target.get("status") == "skipped" else "待补充" if target.get("summary") or target.get("status") in ("uncertain", "exhausted") else "未开始"}
 
     stages = []
     for index, stage_id in enumerate(STAGES):
@@ -259,7 +265,7 @@ def snapshot(workspace, state=None):
             artifact = by_id.get(identifier)
             target_key = "D" + str(chapter_index + 1).zfill(2) if stage_id == "definition" else None
             target = targets.get(target_key, {})
-            book_topics.append({"id": identifier, "title": title, "summary": target.get("summary", ""),
+            book_topics.append({"id": identifier, "title": title, "summary": target_summary(target_key) if target_key else "",
                                 "artifactId": artifact["id"] if artifact else None,
                                 "current": identifier in focus_ids or bool(target_key and target_key == current_target),
                                 "status": LABELS[artifact["status"]] if artifact else "已记录" if target.get("status") == "sufficient" else "待补充" if target.get("summary") else "待形成"})
