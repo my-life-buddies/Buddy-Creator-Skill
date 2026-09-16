@@ -173,9 +173,14 @@ def _activity(state, drafts):
 def snapshot(workspace, state=None):
     workspace = Path(workspace)
     state = state if state is not None else _read(workspace / "state.json")
-    catalog = _read(ROOT / "references" / "catalog.json")
+    import buddy_core
+    import methods
+    catalog = buddy_core.catalog(state)
+    catalog["cards"] = {key: card for key, card in catalog["cards"].items()
+                        if card["stage"] != "methods" or methods.active(state, key)}
     cards, chapters = catalog["cards"], catalog["chapters"]
     stage = state["stage"]
+    method_conclusion = methods.conclusion(state) if stage == "methods" else None
     targets = state.get("targets", {})
     artifacts = [_artifact_view(state, a) for a in state.get("artifacts", {}).values()]
     by_id = {a["id"]: a for a in artifacts}
@@ -188,20 +193,21 @@ def snapshot(workspace, state=None):
     confirmation = delivery.get("confirmationTarget") or {}
     requested = [r["id"] for r in confirmation.get("objects", [])
                  if confirmation.get("stage") == stage and by_id.get(r.get("id"), {}).get("hash") == r.get("hash")]
-    hypotheses = sorted([a for a in artifacts if a["kind"] == "hypothesis"], key=lambda a: a["id"])
+    hypotheses = sorted([a for a in artifacts if a["kind"] == "hypothesis"], key=lambda a: int(a["id"].split("H")[-1]))
     target_object = _object_for_target(state, target_id) if target_id else None
     complete = all(_book_confirmed(state, s, chapters) for s in STAGES)
     focus_ids = [target_object] if target_object else [a_id for a_id in requested
                                                     if by_id[a_id]["status"] in ("pending", "revised")]
     if not focus_ids and not target_id:
-        candidate = next((a for a in artifacts if a["stage"] == stage and a["status"] in ("pending", "revised")), None)
+        candidate = next((a for a in artifacts if a["stage"] == stage and a["status"] in ("pending", "revised")
+                          and (not method_conclusion or a["kind"] == "chapter")), None)
         if candidate:
             focus_ids = [candidate["id"]]
     focus = by_id.get(focus_ids[0]) if focus_ids else None
     first_target = next((i for i, c in cards.items() if c["stage"] == stage
                          and not i.startswith(("H", "T.", "R00"))
                          and targets.get(i, {}).get("status", "unstarted") == "unstarted"), None)
-    current_target = target_id or (first_target if not focus and not complete
+    current_target = target_id or (first_target if not focus and not complete and not method_conclusion
                                     and not (stage == "methods" and not hypotheses) else None)
     topic_title = cards.get(current_target, {}).get("title")
     if current_target and current_target.startswith("T."):
@@ -223,6 +229,8 @@ def snapshot(workspace, state=None):
         "summary": target_summary(current_target) if current_target else delivery.get("blocked", ""),
         "status": "已暂停" if state.get("paused") else "待补充" if delivery.get("blocked") else LABELS[focus["status"]] if focus else "已完成" if complete else "讨论中",
     }
+    if method_conclusion and not focus:
+        current.update(phase="访谈收口", title="方法访谈已收口", summary=method_conclusion["summary"], status="待整理手册")
     if focus and focus["kind"] == "hypothesis":
         current["position"] = {"index": next(i + 1 for i, a in enumerate(hypotheses) if a["id"] == focus["id"]), "total": len(hypotheses)}
 
@@ -242,6 +250,12 @@ def snapshot(workspace, state=None):
         identifiers = [i for i, c in cards.items() if c["stage"] == stage_id]
         groups = []
         if stage_id == "methods":
+            record = methods.conclusion(state)
+            if record:
+                groups.append({"id": "conclusion", "title": "访谈收口", "topics": [{"id": "method-conclusion",
+                    "title": "覆盖充分" if record["status"] == "sufficient" else "创作者主动结束",
+                    "summary": record["summary"] + "\n" + "；".join(record["unresolved"]),
+                    "artifactId": None, "current": False, "status": "已收口"}]})
             groups.extend([
                 {"id": "candidates", "title": "方法候选", "topics": [topic("H" + a["id"].split("H")[-1].zfill(2)) for a in hypotheses]},
                 {"id": "base", "title": "基础情境", "topics": [topic(i) for i in identifiers if i.startswith("M")]},

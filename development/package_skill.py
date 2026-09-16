@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parent.parent
 METADATA = json.loads((ROOT / 'version.json').read_text(encoding='utf-8'))
 TOP_FILES = {'SKILL.md', 'INSTALL.md', 'THIRD_PARTY_NOTICES.md', 'version.json'}
 TOP_DIRS = {'references', 'scripts', 'assets', 'agents'}
-REQUIRED = ['SKILL.md', 'INSTALL.md', 'references/host-guide.md', 'references/catalog.json',
+REQUIRED = ['scripts/methods.py', 'references/methods-protocol.md', 'SKILL.md', 'INSTALL.md', 'references/host-guide.md', 'references/catalog.json',
             'references/interview.md', 'references/dialogue-examples.md', 'references/opening.md',
             'scripts/buddy.py', 'scripts/buddy_core.py', 'scripts/interview.py', 'scripts/sources.py',
             'scripts/preview.py', 'scripts/completion.py', 'assets/preview/index.html', 'version.json']

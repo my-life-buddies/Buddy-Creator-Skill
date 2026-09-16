@@ -1,6 +1,6 @@
-# Buddy Creator Skill 1.3.0
+# Buddy Creator Skill 1.5.0
 
-1.3.0 更新了开场及四阶段问法：直接接着实际经历聊，减少例行概括和点评，复用已经说清的信息；同步更新连续对话示例，保留收敛、追问边界和版本确认。
+1.5.0 将方法访谈改为按任务复杂度和真实缺口动态展开：方法、基础案例和拓展案例不设固定总数。Agent 有依据地判断充分，或创作者主动叫停时收口；叫停保留待补范围，手册仍需真实确认。单问题追问上限、历史计数及版本确认继续保留。独立 Skill 保持四册流程。
 
 在你正在使用的 coding agent 主对话中，把一个搭子想法逐步整理成可确认的创作手册。旁边的只读预览同步呈现访谈进度、已经形成的内容和服务模式图。
 
@@ -12,7 +12,7 @@
 
 > 请从 https://raw.githubusercontent.com/my-life-buddies/Buddy-Creator-Skill/main/start.md 安装 Buddy Creator Skill，并开始帮我创作一个搭子。
 
-也可以下载[完整安装包](https://github.com/my-life-buddies/Buddy-Creator-Skill/releases/download/v1.3.0/buddy-creator-1.3.0.zip)，交给宿主安装。[SHA-256 校验文件](https://github.com/my-life-buddies/Buddy-Creator-Skill/releases/download/v1.3.0/buddy-creator-1.3.0.zip.sha256)
+也可以下载[完整安装包](https://github.com/my-life-buddies/Buddy-Creator-Skill/releases/download/v1.5.0/buddy-creator-1.5.0.zip)，交给宿主安装。[SHA-256 校验文件](https://github.com/my-life-buddies/Buddy-Creator-Skill/releases/download/v1.5.0/buddy-creator-1.5.0.zip.sha256)
 
 不需要提供 buddyid。宿主自动创建空白项目、打开预览，再用通俗的介绍开始访谈。安装与升级细节见 [INSTALL.md](INSTALL.md)。
 
@@ -62,4 +62,4 @@
 
 维护者可在仓库目录运行 `python3 development/package_skill.py`，产物写入 `release/`。安装使用不需要执行此步骤。旧 Node 实现保留在 v0.2.x 标签的 Git 历史中。
 
-完整安装包见 [v1.3.0 Release](https://github.com/my-life-buddies/Buddy-Creator-Skill/releases/tag/v1.3.0)。
+完整安装包见 [v1.5.0 Release](https://github.com/my-life-buddies/Buddy-Creator-Skill/releases/tag/v1.5.0)。

@@ -45,8 +45,11 @@ def digest(value):
     return hashlib.sha256(value.encode('utf-8')).hexdigest()
 
 
-def catalog():
-    return json.loads((ROOT / 'references' / 'catalog.json').read_text(encoding='utf-8'))
+def catalog(state=None):
+    result = json.loads((ROOT / 'references' / 'catalog.json').read_text(encoding='utf-8'))
+    if state:
+        result['cards'].update(state.get('methodInterview', {}).get('targets', {}))
+    return result
 
 
 def atomic_json(path, data):
@@ -213,7 +216,7 @@ def service_gates(state):
 
 
 def gates(state, stage):
-    cards = catalog()['cards']
+    cards = catalog(state)['cards']
     def target_rows(ids):
         return [{'label': cards[key]['title'], 'pass': state['targets'][key]['status'] in CLOSED} for key in ids]
     if stage == 'definition':
@@ -228,6 +231,9 @@ def gates(state, stage):
             {'label': '每类必需来源有实际内容', 'pass': all(any(s and s.get('kind') == kind and s.get('status') == 'ready' for s in selected) for kind in plan['requiredKinds'])},
         ]
     if stage == 'methods':
+        import methods
+        if methods.enabled(state):
+            return methods.gates(state)
         hypotheses = [a for a in state['artifacts'].values() if a['kind'] == 'hypothesis']
         return [
             {'label': '3—4 个不同方法候选已全部处理', 'pass': 3 <= len(hypotheses) <= 4 and len({re.sub(r'\s', '', a['markdown']) for a in hypotheses}) == len(hypotheses) and all(confirmed(state, a['id'], 'accepted') or confirmed(state, a['id'], 'rejected') for a in hypotheses)},
@@ -238,12 +244,13 @@ def gates(state, stage):
 
 def can_draft(state, stage):
     import interview
-    return not interview.blockers(state, stage) and all(g['pass'] for g in gates(state, stage)) and (stage != 'service' or confirmed(state, 'service.blueprint'))
+    import methods
+    return (stage == 'methods' and methods.scoped_stop(state) or not interview.blockers(state, stage)) and all(g['pass'] for g in gates(state, stage)) and (stage != 'service' or confirmed(state, 'service.blueprint'))
 
 
 def askable(state, target_id):
     import interview
-    cards = catalog()['cards']
+    cards = catalog(state)['cards']
     require(target_id in cards, 'UNKNOWN_TARGET', '未知采访目标。', {'targetId': target_id})
     card, target = cards[target_id], state['targets'][target_id]
     require(not state['paused'], 'PAUSED', '用户已暂停，先按用户原话恢复再提出新问题。')
@@ -253,13 +260,22 @@ def askable(state, target_id):
     if target_id == 'K02':
         require(not state['sourcePlan']['discoveryClosed'], 'SOURCE_DISCOVERY_CLOSED', '用户已结束本轮来源发现，不应重复询问。')
     if card['stage'] == 'methods':
+        import methods
+        if methods.enabled(state):
+            require(methods.active(state, target_id), 'METHOD_TARGET_REQUIRED', '先登记本目标的具体目的与依据。')
+            require(not state['methodInterview'].get('conclusion'), 'METHOD_CLOSED', '方法访谈已收口，整理手册；明确续谈才继续提问。')
         if target_id.startswith('H'):
             key = 'hypothesis.H' + str(int(target_id[1:]))
             require(key in state['artifacts'] and not confirmed(state, key, 'accepted') and not confirmed(state, key, 'rejected'), 'HYPOTHESIS_HANDLED', '候选尚未生成或已处理。')
         else:
-            require(all(g['pass'] for g in gates(state, 'methods')[:2]), 'METHOD_HYPOTHESES', '请先完成全部方法候选校准，再讨论基础场景。')
-            if target_id.startswith('E'):
-                require(all(confirmed(state, 'scenario.M0' + str(i)) for i in range(1, 5)), 'BASE_SCENARIOS', '请先确认四个基础案例。')
+            if methods.enabled(state):
+                require(any(a['kind'] == 'hypothesis' and confirmed(state, a['id'], 'accepted') for a in state['artifacts'].values()), 'METHOD_HYPOTHESES', '先校准本案例依据的方法。')
+                if target_id.startswith('E'):
+                    require(any(key.startswith('scenario.M') and confirmed(state, key) for key in state['artifacts']), 'BASE_SCENARIOS', '拓展前先校准对应的基础案例。')
+            else:
+                require(all(g['pass'] for g in gates(state, 'methods')[:2]), 'METHOD_HYPOTHESES', '请先完成全部方法候选校准，再讨论基础场景。')
+                if target_id.startswith('E'):
+                    require(all(confirmed(state, 'scenario.M0' + str(i)) for i in range(1, 5)), 'BASE_SCENARIOS', '请先确认四个基础案例。')
             require(not confirmed(state, 'scenario.' + target_id), 'SCENARIO_HANDLED', '当前场景已经确认。')
     if card['stage'] == 'service' and target_id not in {'S00', 'R00'}:
         require(state.get('serviceModelExplained') and state.get('serviceMode') in {'smart', 'guided'}, 'SERVICE_INTRO', '先用通俗语言解释三阶段，再由用户选择智能规划或逐项讨论。')
@@ -288,6 +304,7 @@ def invalidate(state, changed, by):
 
 
 def put_artifacts(state, proposals, by, draft=False):
+    import methods
     require(isinstance(proposals, list), 'PATCH_SCHEMA', 'artifacts 必须为数组。')
     ids = [a.get('id') for a in proposals if isinstance(a, dict)]
     require(len(ids) == len(proposals) and len(set(ids)) == len(ids), 'PATCH_SCHEMA', '每个产物必须是对象，且一次只能修改同一 ID 一次。')
@@ -309,17 +326,27 @@ def put_artifacts(state, proposals, by, draft=False):
         for ref in a['dependencies']:
             if ref['type'] == 'artifact':
                 require(confirmed(state, ref['id']) or confirmed(state, ref['id'], 'accepted'), 'UNCONFIRMED_DEPENDENCY', '依赖内容必须已确认。', {'id': ref['id']})
+        if a['kind'] in {'hypothesis', 'scenario'} and methods.enabled(state):
+            target = ('H' + a['id'].split('H')[-1].zfill(2) if a['kind'] == 'hypothesis' else a['id'].split('.', 1)[-1])
+            require(methods.active(state, target) and methods.object_id(target) == a['id'], 'METHOD_TARGET_REQUIRED', '产物必须对应已登记的稳定目标。')
+            require(not state['methodInterview'].get('conclusion'), 'METHOD_CLOSED', '方法访谈已收口，明确续谈后才能修订案例。')
         if a['kind'] == 'chapter':
+            if a['stage'] == 'methods' and methods.enabled(state):
+                methods.scope_chapter(state, a)
             require(a['id'] in book_ids(a['stage']), 'CHAPTER_SCHEMA', '章节必须使用固定的 27 章编号。')
         elif a['kind'] == 'hypothesis':
-            require(a['stage'] == 'methods' and re.fullmatch(r'hypothesis\.H[1-4]', a['id']), 'HYPOTHESIS_SCHEMA', '方法候选使用 hypothesis.H1 至 H4。')
+            require(a['stage'] == 'methods' and re.fullmatch(r'hypothesis\.H[1-9][0-9]*' if methods.enabled(state) else r'hypothesis\.H[1-4]', a['id']), 'HYPOTHESIS_SCHEMA', '方法候选使用 hypothesis.H1、H2…，先登记对应 H01、H02… 目标。')
         elif a['kind'] == 'scenario':
-            require(a['stage'] == 'methods' and re.fullmatch(r'scenario\.(M0[1-4]|E0[1-3])', a['id']), 'SCENARIO_SCHEMA', '案例使用 scenario.M01—M04 / E01—E03。')
-            require(all(g['pass'] for g in gates(state, 'methods')[:2]), 'METHOD_HYPOTHESES', '先校准方法候选。')
+            require(a['stage'] == 'methods' and re.fullmatch(r'scenario\.[ME](?:0[1-9]|[1-9][0-9]+)' if methods.enabled(state) else r'scenario\.(M0[1-4]|E0[1-3])', a['id']), 'SCENARIO_SCHEMA', '案例使用已登记的 scenario.M01… / E01…。')
+            if methods.enabled(state):
+                require(any(r['type'] == 'artifact' and r['id'].startswith('hypothesis.') and confirmed(state, r['id'], 'accepted') for r in a['dependencies']), 'METHOD_HYPOTHESES', '案例必须依赖实际已认可的方法。')
+            else:
+                require(all(g['pass'] for g in gates(state, 'methods')[:2]), 'METHOD_HYPOTHESES', '先校准方法候选。')
             if a['id'].startswith('scenario.M'):
                 require(any(r['type'] == 'input' for r in a['evidence']), 'USER_ANSWERS_FIRST', '基础案例必须先有用户实际回答。')
             else:
-                require(all(confirmed(state, 'scenario.M0' + str(i)) for i in range(1, 5)), 'BASE_SCENARIOS', '拓展案例前先确认四个基础案例。')
+                if not methods.enabled(state):
+                    require(all(confirmed(state, 'scenario.M0' + str(i)) for i in range(1, 5)), 'BASE_SCENARIOS', '拓展案例前先确认四个基础案例。')
                 require(any(r['type'] == 'artifact' and r['id'].startswith('scenario.M') for r in a['dependencies']), 'BASE_SCENARIO_REQUIRED', '拓展案例须引用对应基础案例。')
         elif a['kind'] == 'transition':
             require(a['stage'] == 'service' and a['id'] in {'transition.' + k for k in ['acquisition-paid', 'acquisition-maintenance', 'paid-paid', 'paid-maintenance']}, 'TRANSITION_SCHEMA', '仅四条非默认路径单独校准。')
@@ -361,7 +388,6 @@ def record_confirmations(state, turn, records, modifying):
         artifact = state['artifacts'].get(key)
         require(artifact and key in shown and artifact['hash'] == shown[key], 'CONFIRMATION_STALE', '确认只能对应上一条实际展示的当前版本，不能扩大范围或确认旧版。')
         require(confirmation_ready(state, artifact), 'CONFIRMATION_BLOCKED', '对应内容还有关键缺口或阶段前置要求未完成，不能确认。')
-        require(not artifact['unresolved'], 'UNRESOLVED', '产物还有未决项，先完成或忠实标明待补，不得伪造确认。', {'id': key, 'unresolved': artifact['unresolved']})
         allowed = {'accepted', 'rejected'} if artifact['kind'] == 'hypothesis' else {'confirmed'}
         require(record.get('decision') in allowed, 'DECISION_SCOPE', '方法候选使用 accepted/rejected，其他产物使用 confirmed。')
         if artifact['kind'] == 'chapter':
@@ -376,7 +402,14 @@ def record_confirmations(state, turn, records, modifying):
 
 def confirmation_ready(state, artifact):
     import interview
-    if artifact['unresolved']:
+    import methods
+    if artifact['kind'] in {'hypothesis', 'scenario'} and methods.stopped(state):
+        return False
+    method_chapter = artifact['kind'] == 'chapter' and artifact['stage'] == 'methods' and methods.enabled(state)
+    if method_chapter and not methods.chapter_scoped(state, artifact):
+        return False
+    limited = method_chapter and methods.scoped_stop(state)
+    if artifact['unresolved'] and not limited:
         return False
     if artifact['kind'] == 'chapter':
         return can_draft(state, artifact['stage'])
@@ -391,6 +424,7 @@ def confirmation_ready(state, artifact):
 
 
 def delivery_record(state, proposal, delivery_id, input_id=None, opening=False, explanation=False):
+    import methods
     import interview
     require(isinstance(proposal, dict) and text(proposal.get('text')), 'DELIVERY_REQUIRED', '需要给用户的公开回复 text。')
     require(not set(proposal) - {'text', 'question', 'confirmationObjectIds', 'confirmationScope', 'mode', 'blocked'}, 'DELIVERY_SCHEMA', 'delivery 包含未支持字段；请按协议提交。')
@@ -428,7 +462,7 @@ def delivery_record(state, proposal, delivery_id, input_id=None, opening=False, 
         require(not all(book_confirmed(state, s) for s in catalog()['stages']), 'NOT_BLOCKED', '访谈已完成，不是阻塞。')
         result['blocked'] = blocked
         state.pop('questionDeliveryId', None)
-    if not explanation and not question and not ids and not blocked and not state['paused'] and not all(book_confirmed(state, s) for s in catalog()['stages']):
+    if not explanation and not question and not ids and not blocked and not state['paused'] and not (state['stage'] == 'methods' and methods.conclusion(state)) and not all(book_confirmed(state, s) for s in catalog()['stages']):
         raise BuddyError('CONTINUATION_REQUIRED', '访谈还未完成：请在本轮给出下一条有效问题或确切内容确认，不能只回复“已保存”。若需要后台整理，先 draft_publish，再继续完成同一轮。')
     state['deliveries'][delivery_id] = result
     state['currentDeliveryId'] = delivery_id
@@ -436,12 +470,14 @@ def delivery_record(state, proposal, delivery_id, input_id=None, opening=False, 
         state['questionDeliveryId'] = delivery_id
     elif explanation:
         result['resumeDeliveryId'] = state.get('questionDeliveryId')
+    elif state['stage'] == 'methods' and methods.conclusion(state):
+        state.pop('questionDeliveryId', None)
     return result
 
 
 def available(state):
     questions = []
-    for target_id in catalog()['cards']:
+    for target_id in catalog(state)['cards']:
         try:
             askable(state, target_id)
             questions.append(target_id)
@@ -452,7 +488,7 @@ def available(state):
 
 def context(workspace, state):
     import interview
-    return {'workspace': str(Path(workspace).resolve()), 'revision': state['revision'], 'stage': state['stage'], 'paused': state['paused'], 'pendingTurnId': state.get('pendingTurnId'), 'catalog': catalog(), 'gates': gates(state, state['stage']), 'continuation': available(state), 'interviewGuidance': interview.guidance(state), 'state': state, 'contract': str(ROOT / 'references' / 'host-guide.md'), 'note': '宿主负责真实语义判断，runtime 仅校验结构、证据版本、状态与确认关系。每轮先保存原话，再整理、保存、展示并登记实际展示；不能替用户确认。'}
+    return {'workspace': str(Path(workspace).resolve()), 'revision': state['revision'], 'stage': state['stage'], 'paused': state['paused'], 'pendingTurnId': state.get('pendingTurnId'), 'catalog': catalog(state), 'gates': gates(state, state['stage']), 'continuation': available(state), 'interviewGuidance': interview.guidance(state), 'state': state, 'contract': str(ROOT / 'references' / 'host-guide.md'), 'note': '宿主负责真实语义判断，runtime 仅校验结构、证据版本、状态与确认关系。每轮先保存原话，再整理、保存、展示并登记实际展示；不能替用户确认。'}
 
 
 def open_workspace(creation_key=None, workspace=None):
@@ -480,6 +516,7 @@ def open_workspace(creation_key=None, workspace=None):
             require(not unexpected, 'WORKSPACE_NOT_EMPTY', '新项目需要空目录；不能覆盖已有资料或 Node 版项目。', {'files': unexpected[:10]})
             cards = catalog()['cards']
             state = {'schemaVersion': SCHEMA, 'buddyId': base.name, 'workspaceId': 'workspace_' + digest(str(base))[:24], 'creationKeyHash': digest(creation_key), 'revision': '', 'stage': 'definition', 'paused': False, 'inputs': {}, 'turns': {}, 'pendingTurnId': None, 'deliveries': {}, 'presentations': [], 'currentDeliveryId': None, 'targets': {key: {'id': key, 'status': 'unstarted', 'summary': '', 'gaps': [], 'evidence': [], 'answerInputIds': []} for key in cards}, 'artifacts': {}, 'confirmations': [], 'sources': {}, 'sourcePlan': {'sourceIds': [], 'requiredKinds': [], 'discoveryClosed': False}, 'serviceMode': None, 'serviceModelExplained': False, 'drafts': [], 'updatedAt': now()}
+            state['methodInterview'] = {'version': 1, 'targets': {}, 'history': []}
             opening = (ROOT / 'references' / 'opening.md').read_text(encoding='utf-8').strip()
             delivery_record(state, {'text': opening, 'question': {'targetId': 'D01'}, 'mode': 'opening'}, 'delivery_opening', opening=True)
             save(base, state)
@@ -494,6 +531,7 @@ def active_turn(state, turn_id):
 
 
 def finish_turn(state, payload):
+    import methods
     import interview
     turn = state['turns'].get(payload.get('turnId'))
     require(turn, 'TURN_NOT_FOUND', '未找到这一轮。')
@@ -505,10 +543,11 @@ def finish_turn(state, payload):
     intent = payload.get('intent', 'answer')
     require(intent in {'answer', 'revision', 'confirmation', 'explanation', 'pause', 'resume'}, 'INTENT_SCHEMA', 'intent 使用 answer/revision/confirmation/explanation/pause/resume。')
     patch = payload.get('patch', {})
-    require(isinstance(patch, dict) and not set(patch) - {'targets', 'artifacts', 'confirmations', 'sourcePlan', 'serviceMode', 'serviceModelExplained', 'paused', 'interview'}, 'PATCH_SCHEMA', 'patch 包含未支持字段。')
+    require(isinstance(patch, dict) and not set(patch) - {'targets', 'artifacts', 'confirmations', 'sourcePlan', 'serviceMode', 'serviceModelExplained', 'paused', 'interview', 'methods'}, 'PATCH_SCHEMA', 'patch 包含未支持字段。')
     inp = state['inputs'][turn['inputId']]
     if intent == 'explanation':
         require(not patch, 'EXPLANATION_ONLY', '纯答疑不修改采访目标、产物或确认；需要修订时使用 revision。')
+    methods.prepare(state, patch.get('methods'), inp, intent)
     replied = state['deliveries'].get(inp.get('replyToDeliveryId'), {})
     target_id = replied.get('question', {}).get('targetId')
     interview_patch = patch.get('interview', {})
@@ -517,7 +556,7 @@ def finish_turn(state, payload):
     if target_id and interview.tracked(target_id):
         interview.ensure(state, target_id)
     for changed_target in interview.prepare(state, interview_patch, inp, intent):
-        invalidate(state, book_ids(catalog()['cards'][changed_target]['stage']), turn['id'])
+        invalidate(state, book_ids(catalog(state)['cards'][changed_target]['stage']), turn['id'])
     if intent == 'answer' and target_id and inp['id'] not in state['targets'][target_id]['answerInputIds']:
         state['targets'][target_id]['answerInputIds'].append(inp['id'])
         if interview.tracked(target_id):
@@ -528,7 +567,7 @@ def finish_turn(state, payload):
         require(isinstance(proposal, dict) and set(proposal) == {'id', 'status', 'summary', 'gaps', 'evidence'}, 'TARGET_SCHEMA', 'targets 每项使用 id/status/summary/gaps/evidence。')
         key = proposal['id']
         require(key in state['targets'], 'UNKNOWN_TARGET', '未知采访目标。')
-        require(catalog()['cards'][key]['stage'] == state['stage'] or catalog()['stages'].index(catalog()['cards'][key]['stage']) < catalog()['stages'].index(state['stage']), 'STAGE_SCOPE', '后续阶段信息可保留在原话中，不能提前完成采访。')
+        require(catalog(state)['cards'][key]['stage'] == state['stage'] or catalog()['stages'].index(catalog(state)['cards'][key]['stage']) < catalog()['stages'].index(state['stage']), 'STAGE_SCOPE', '后续阶段信息可保留在原话中，不能提前完成采访。')
         require(proposal['status'] in CLOSED | {'unstarted', 'exploring'} and isinstance(proposal['summary'], str) and text_list(proposal['gaps'], True), 'TARGET_SCHEMA', 'status 使用 unstarted/exploring/sufficient/uncertain/skipped/exhausted。')
         evidence(state, proposal['evidence'], inp['id'] if proposal['status'] in {'skipped', 'uncertain'} else None)
         if proposal['status'] == 'sufficient':
@@ -537,13 +576,13 @@ def finish_turn(state, payload):
         require(not (old['status'] in CLOSED and proposal['status'] in {'unstarted', 'exploring'}),
                 'REOPEN_REQUIRED', '已收口目标不能直接重设为进行中；只有明确续谈请求可使用 interview.reopen。')
         if any(old.get(field) != proposal.get(field) for field in ('summary', 'status', 'gaps')):
-            invalidate(state, book_ids(catalog()['cards'][key]['stage']), turn['id'])
+            invalidate(state, book_ids(catalog(state)['cards'][key]['stage']), turn['id'])
         state['targets'][key].update(copy.deepcopy(proposal))
     before_settle = {key: (value['status'], list(value['gaps'])) for key, value in state['targets'].items()}
     interview.settle(state)
     for key, target in state['targets'].items():
         if before_settle[key] != (target['status'], target['gaps']):
-            invalidate(state, book_ids(catalog()['cards'][key]['stage']), turn['id'])
+            invalidate(state, book_ids(catalog(state)['cards'][key]['stage']), turn['id'])
     if 'sourcePlan' in patch:
         plan = patch['sourcePlan']
         require(isinstance(plan, dict) and set(plan) == {'sourceIds', 'requiredKinds', 'discoveryClosed'} and isinstance(plan['sourceIds'], list) and isinstance(plan['requiredKinds'], list) and isinstance(plan['discoveryClosed'], bool), 'SOURCE_PLAN_SCHEMA', 'sourcePlan 使用 sourceIds/requiredKinds/discoveryClosed。')
@@ -562,7 +601,8 @@ def finish_turn(state, payload):
         state['paused'] = patch['paused']
     proposals = patch.get('artifacts', [])
     record_confirmations(state, turn, patch.get('confirmations', []), {a.get('id') for a in proposals})
-    put_artifacts(state, proposals, turn['id'])
+    method_chapters = [a for a in proposals if a.get('stage') == 'methods' and a.get('kind') == 'chapter']
+    put_artifacts(state, [a for a in proposals if a not in method_chapters], turn['id'])
     # Faithful base-case capture is a user answer, not invented consent to a new proposal.
     for proposal in proposals:
         if proposal['kind'] == 'scenario' and proposal['id'].startswith('scenario.M') and proposal.get('data', {}).get('capture') == 'faithful_user_answer':
@@ -571,6 +611,8 @@ def finish_turn(state, payload):
             artifact = state['artifacts'][proposal['id']]
             require(confirmation_ready(state, artifact), 'CONFIRMATION_BLOCKED', '当前案例仍有关键缺口，不能自动确认。')
             state['confirmations'].append({'id': 'confirmation_' + digest([inp['id'], artifact['hash']])[:24], 'objectId': artifact['id'], 'hash': artifact['hash'], 'inputId': inp['id'], 'deliveryId': replied['id'], 'decision': 'confirmed', 'evidence': proposal['evidence']})
+    methods.finish(state, patch.get('methods'), inp)
+    put_artifacts(state, method_chapters, turn['id'])
     state['stage'] = choose_stage(state)
     result = delivery_record(state, payload.get('delivery'), 'delivery_' + digest(turn['id'])[:24], inp['id'], explanation=intent == 'explanation')
     turn.update(status='finished', updatedAt=now(), finishHash=payload_hash, result={'deliveryId': result['id']})

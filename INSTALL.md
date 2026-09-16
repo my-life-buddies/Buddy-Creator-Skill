@@ -1,10 +1,10 @@
-# 安装 Buddy Creator Skill 1.3.0
+# 安装 Buddy Creator Skill 1.5.0
 
 把完整 ZIP 交给当前宿主 agent，告诉它：
 
 > 请安装这个 Buddy Creator Skill，并开始帮我创作一个搭子。
 
-也可以让宿主从[公开安装入口](https://raw.githubusercontent.com/my-life-buddies/Buddy-Creator-Skill/main/start.md)获取 1.3.0 完整包并安装。开始创作无需填写 buddyid，也无需选择宿主类型。
+也可以让宿主从[公开安装入口](https://raw.githubusercontent.com/my-life-buddies/Buddy-Creator-Skill/main/start.md)获取 1.5.0 完整包并安装。开始创作无需填写 buddyid，也无需选择宿主类型。
 
 ## 环境与安装
 

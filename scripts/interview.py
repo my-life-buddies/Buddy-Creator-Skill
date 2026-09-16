@@ -33,8 +33,8 @@ def ensure(state, target_id):
         }
         history['gaps'][initial_id(target_id)] = {
             'id': initial_id(target_id), 'targetId': target_id,
-            'description': catalog()['cards'][target_id]['minimum'],
-            'impact': '当前目标的必要内容', 'blocking': catalog()['cards'][target_id]['hard'], 'evidence': [],
+            'description': catalog(state)['cards'][target_id]['minimum'],
+            'impact': '当前目标的必要内容', 'blocking': catalog(state)['cards'][target_id]['hard'], 'evidence': [],
             'status': 'open', 'windowStart': 0, 'noGainStreak': 0,
             'answers': [{'inputId': key, 'hasNewInformation': None} for key in answers],
         }
@@ -47,7 +47,7 @@ def count(state, target_id):
 
 
 def target_open(state, target_id):
-    card = catalog()['cards'][target_id]
+    card = catalog(state)['cards'][target_id]
     require(count(state, target_id) < card['maxAnswers'], 'TARGET_LIMIT',
             '本目标已到本轮回答上限；保留待补，转到其他目标。更换缺口或案例不会重置次数。', {'targetId': target_id})
     progress = state.get('interview', {}).get('targets', {}).get(target_id, {})
@@ -69,7 +69,7 @@ def question_gap(state, question):
     require(gap['status'] == 'open' and len(gap['answers']) - gap['windowStart'] < GAP_LIMIT
             and gap['noGainStreak'] < NO_GAIN_LIMIT, 'GAP_CLOSED',
             '该缺口已讲清、暂放或达到边界；不要换一种问法重复追问。', {'gapId': gap_id})
-    card = catalog()['cards'][target_id]
+    card = catalog(state)['cards'][target_id]
     if count(state, target_id) >= card.get('reviewAfter', card['maxAnswers']):
         require(gap['blocking'], 'EXTENSION_REQUIRES_BLOCKER',
                 '四轮整理后只补影响当前结论或执行的关键缺口，其他细节留待补充。')
@@ -88,7 +88,7 @@ def prepare(state, patch, inp, intent):
                 'GAP_SCHEMA', '缺口使用 id/targetId/description/impact/blocking/evidence。')
         key, target_id = proposal['id'], proposal['targetId']
         require(target_id in state['targets'] and tracked(target_id), 'GAP_TARGET', '缺口必须属于现有采访目标。')
-        require(catalog()['cards'][target_id]['stage'] == state['stage'], 'STAGE_SCOPE', '只登记当前阶段的采访缺口。')
+        require(catalog(state)['cards'][target_id]['stage'] == state['stage'], 'STAGE_SCOPE', '只登记当前阶段的采访缺口。')
         require(text(key) and re.fullmatch(re.escape(target_id) + r'\.[a-z0-9_-]{1,48}', key)
                 and text(proposal['description']) and text(proposal['impact'])
                 and type(proposal['blocking']) is bool, 'GAP_SCHEMA', '缺口须有稳定编号、具体内容和对本目标的影响。')
@@ -116,7 +116,7 @@ def prepare(state, patch, inp, intent):
         evidence(state, resolution['evidence'], inp['id'])
         gap = state.get('interview', {}).get('gaps', {}).get(resolution['gapId'])
         require(gap, 'GAP_NOT_FOUND', '未找到待补缺口。')
-        require(catalog()['stages'].index(catalog()['cards'][gap['targetId']]['stage']) <=
+        require(catalog()['stages'].index(catalog(state)['cards'][gap['targetId']]['stage']) <=
                 catalog()['stages'].index(state['stage']), 'STAGE_SCOPE', '不能提前解决后续阶段目标。')
         gap['status'] = 'resolved'
         gap.setdefault('resolutions', []).append(dict(copy.deepcopy(resolution), inputId=inp['id']))
@@ -128,7 +128,7 @@ def prepare(state, patch, inp, intent):
                 'REOPEN_SCHEMA', '续谈须为 resume/revision，指定 targetId/gapId/reason/evidence。')
         target_id = reopen['targetId']
         require(target_id in state['targets'] and tracked(target_id)
-                and catalog()['cards'][target_id]['stage'] == state['stage'], 'REOPEN_SCOPE', '仅恢复当前阶段的指定目标。')
+                and catalog(state)['cards'][target_id]['stage'] == state['stage'], 'REOPEN_SCOPE', '仅恢复当前阶段的指定目标。')
         evidence(state, reopen['evidence'], inp['id'])
         progress = ensure(state, target_id)
         gap = state['interview']['gaps'].get(reopen['gapId'])
@@ -167,7 +167,7 @@ def assess(state, target_id, gap_id, assessment, inp):
 
 def settle(state):
     for target_id, progress in state.get('interview', {}).get('targets', {}).items():
-        target, card = state['targets'][target_id], catalog()['cards'][target_id]
+        target, card = state['targets'][target_id], catalog(state)['cards'][target_id]
         gaps = [g for g in state['interview']['gaps'].values() if g['targetId'] == target_id]
         unresolved = [g for g in gaps if g['status'] != 'resolved'
                       and (g['answers'] or g['id'] != initial_id(target_id))]
@@ -197,16 +197,19 @@ def settle(state):
 def blockers(state, stage, target_id=None):
     return [g for g in state.get('interview', {}).get('gaps', {}).values()
             if g['blocking'] and g['status'] != 'resolved'
-            and catalog()['cards'][g['targetId']]['stage'] == stage
+            and catalog(state)['cards'][g['targetId']]['stage'] == stage
             and (target_id is None or g['targetId'] == target_id)]
 
 
 def guidance(state):
+    import methods
     result = {}
     for target_id, target in state['targets'].items():
-        if catalog()['cards'][target_id]['stage'] != state['stage'] or not tracked(target_id):
+        if catalog(state)['cards'][target_id]['stage'] != state['stage'] or not tracked(target_id):
             continue
-        card = catalog()['cards'][target_id]
+        card = catalog(state)['cards'][target_id]
+        if card['stage'] == 'methods' and not methods.active(state, target_id):
+            continue
         result[target_id] = {
             'answersThisWindow': count(state, target_id), 'maxAnswers': card['maxAnswers'],
             'reviewDue': count(state, target_id) >= card.get('reviewAfter', card['maxAnswers']),

@@ -168,7 +168,8 @@ def finalize(workspace, state):
             'sourceArtifact': {key: state['artifacts'].get('service.blueprint', {}).get(key) for key in ('id', 'hash')},
             'transitionArtifacts': [{key: artifact.get(key) for key in ('id', 'hash')} for artifact in state['artifacts'].values() if artifact.get('kind') == 'transition']})
         files['versions.json'] = _bytes({'buddyId': state['buddyId'], 'revision': revision,
-                                        'artifacts': state['artifacts'], 'confirmations': state['confirmations']})
+                                        'artifacts': state['artifacts'], 'confirmations': state['confirmations'],
+                                        'methodInterview': state.get('methodInterview')})
         files['sources.json'] = _bytes(list(state.get('sources', {}).values()))
         files['MANIFEST.json'] = _bytes({'format': 'buddy-creator-1', 'buddyId': state['buddyId'],
                                         'revision': revision, 'complete': True,

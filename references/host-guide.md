@@ -1,6 +1,6 @@
-# 宿主调用协议 · Buddy Creator Skill 1.3.0
+# 宿主调用协议 · Buddy Creator Skill 1.5.0
 
-采访始终在宿主主对话中进行。随附程序只负责保存、校验、预览与成果整理；不调用模型、不创建另一个采访 agent。此文件定义 1.3.0 接口，不能混用旧 Node 0.x 版本的 sessionId、workToken、artifact_confirm 或 source_retry。
+采访始终在宿主主对话中进行。随附程序只负责保存、校验、预览与成果整理；不调用模型、不创建另一个采访 agent。方法目标和收口使用 [方法访谈协议](methods-protocol.md)。此文件定义 1.5.0 接口，不能混用旧 Node 0.x 版本的 sessionId、workToken、artifact_confirm 或 source_retry。
 
 目标的 summary 和 interview.assessment.summary 仍需准确保存；它们是内容记录与判断结论，不是每轮对外话术模板。delivery.text 可以直接接着原话提问，不必把内部摘要先复述一遍。表达原则和连续示例分别见 [访谈规则](interview.md) 与 [对话示例](dialogue-examples.md)。本次表达调整不改变接口字段、回答计数或确认门槛。
 
@@ -97,7 +97,7 @@ patch 各数组仅包含本次变更，不必重复发送全部存量：
 
 工具返回 context.interviewGuidance 与 state.interview，供宿主读取具体计数与整理节点；仅在主对话生成必要的简短小结，预览不显示内部记录。达到边界时工具可以将目标转为 exhausted，自动将未解决描述加入 targets.gaps；这不等于充分或用户暂停。提交 sufficient 前，本目标已登记的具体缺口必须实际解决；不能用强行改状态抹去待补。
 
-未解决的 blocking 缺口阻止对应阶段 Booklet 和相关场景的正式确认，不能通过清空章节 unresolved 绕过。非关键待补仍如实写入手册，确认的是已有内容和明确范围。只达到次数上限时转向独立目标；确实无合法推进才使用 blocked。
+未解决的 blocking 缺口通常阻止对应阶段 Booklet 和相关场景的正式确认，不能通过清空章节 unresolved 绕过。方法阶段的 user_stopped 是有范围说明的特例，必须按 methods-protocol 保存待补并展示受限的五章；不解除单个方法或案例的确认门槛。非关键待补仍如实写入手册，确认的是已有内容和明确范围。只达到次数上限时转向独立目标；确实无合法推进才使用 blocked。
 
 默认 initial 缺口取现有目标最低条件，并继承其 hard 门槛，可不单独登记。想深入另一个独立缺口时，先使用 gaps 给出依据，再让 question 绑定它。例如在 K03.initial 已经讲清经验含义后，确有适用条件缺口，可以登记 K03.conditions；它仍消耗同一个 K03 总次数。不能把“再讲一个例子”当作独立缺口。
 
@@ -109,7 +109,7 @@ patch 各数组仅包含本次变更，不必重复发送全部存量：
 
 四个阶段顺序为 definition、knowledge、methods、service。阶段由有效确认和业务门槛决定，patch 不能直接设 stage 跳关。catalog.json 保存四阶段、27 章、目标最低条件、追问上限和服务规则；按当前阶段读取 definition/knowledge/methods/service.md，不把卡片中的示例当作用户内容。
 
-每条真实回答最多计一次；解释、改稿和版本确认不能伪装成新采访回答。每缺口最多三次，目标连续两次无新增提前收口。K03 与 M/E 目标四次后整理，只有最新回答有新增且仍有 blocking 缺口才延长到最多六次；其他目标沿用 catalog 的二或三次。总次数跨缺口、跨宿主和跨重启累计；K02 仍需明确结束或跳过。方法先逐条校准 3—4 候选、再四基础和三拓展，缺关键条件不能靠次数耗尽“确认”。基础案例先听真实判断；拓展仅变一个条件，保留已知操作，明确新推导待校准。
+每条真实回答最多计一次；解释、改稿和版本确认不能伪装成新采访回答。每缺口最多三次，目标连续两次无新增提前收口。K03 与 M/E 目标四次后整理，只有最新回答有新增且仍有 blocking 缺口才延长到最多六次；其他目标沿用 catalog 的二或三次。总次数跨缺口、跨宿主和跨重启累计；K02 仍需明确结束或跳过。方法候选和案例不设固定数量；按 [方法协议](methods-protocol.md) 登记新目标，Agent 判断充分或用户明确结束后收口。缺关键条件不能靠次数耗尽“确认”，用户叫停须在五章中保留范围与待补。基础案例先听真实判断；拓展仅变一个条件，保留已知操作，明确新推导待校准。
 
 长内容可以调用 draft_publish，包含 `operation:"draft_publish"`、`turnId`、稳定 `operationId`、`artifacts:[...]`。同一草稿重试沿用 operationId；正文改变用新 operationId。只有当前工作可发布；草稿公开展示，不能包含隐藏思考、内部评分或尚未收到的输入。草稿不是正式确认对象，仍需 finish 提交版本后展示并确认。
 

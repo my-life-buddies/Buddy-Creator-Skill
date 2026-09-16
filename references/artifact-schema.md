@@ -9,7 +9,7 @@
 - id、stage、kind、title、markdown：字符串。
 - evidence：Ref 数组，记录真实输入或资料依据。
 - dependencies：Ref 数组，记录已确认的上游产物。
-- unresolved：未决事项字符串数组，没有待处理事项时为 []。
+- unresolved：影响当前版本确认的未决事项字符串数组；一般非空时禁止正式确认。方法阶段用户明确结束是唯一例外：程序绑定有效收口记录并将待补写入五章正文，用户确认的是有范围限制的版本，不是确认未验证案例。已经明确排除在本次范围外的后续版本计划写入正文的范围说明，不重复放入此数组。仍影响当前结论的缺口必须保留。
 - data：可选对象；没有特殊结构时使用 {}。
 
 不要提交 hash 或 revision，工具负责计算。evidence 或 dependencies 至少有一项实际依据。知识、方法、服务产物的 dependencies 应分别引用每个上游阶段实际使用的已确认章节；下游章节还要引用实际使用的方法候选、场景或蓝图。引用对象 hash 必须是当前版本。未决项如允许延后，应在正文准确说明缺口并让创作者校准这个范围；不能为了确认清空仍待解决的具体问题。
@@ -20,14 +20,14 @@
 | chapter | knowledge | knowledge.1 至 knowledge.7 | 可留 {}，正文对应七章 |
 | chapter | methods | methods.1 至 methods.5 | 可留 {}，正文对应五章 |
 | chapter | service | service.1 至 service.9 | 可留 {}，正文对应九章 |
-| hypothesis | methods | hypothesis.H1 至 hypothesis.H4 | 可留 {}；先形成 3—4 条不同候选 |
-| scenario | methods | scenario.M01 至 scenario.M04；scenario.E01 至 scenario.E03 | 具体执行写 markdown |
+| hypothesis | methods | hypothesis.H1、H2… | 可留 {}；先登记对应 H01、H02… 目标 |
+| scenario | methods | scenario.M01、M02…；scenario.E01、E02… | 具体执行写 markdown |
 | blueprint | service | service.blueprint | 使用下节结构 |
 | transition | service | transition.acquisition-paid、transition.acquisition-maintenance、transition.paid-paid、transition.paid-maintenance | trigger、rightsChange、dataInheritance、message 均为非空字符串 |
 
 四册是固定章节的组合，没有 kind:booklet 产物，也不使用 data.chapters。整册确认通过 delivery.confirmationScope=booklet 和该册全部章节 ID；逐章确认用 scope=object 及对应章节。一次不能跨册。
 
-方法候选正式反馈使用 decision:accepted 或 rejected，其他对象使用 confirmed。3—4 条候选均处理且至少一条 accepted 才进入基础场景。基础场景可在创作者回答足够具体时忠实记录，其 data.capture=faithful_user_answer 仅用于刚回答的对应 M01—M04，必须引用本轮精确原话，正文不能新增条件、顺序或推断。新增推导应走正常展示、下一轮确认。E01—E03 必须在四基础有效确认之后生成，并依赖对应基础场景；每次只变一个条件。
+方法候选正式反馈使用 decision:accepted 或 rejected，其他对象使用 confirmed。新作品按 [方法访谈协议](methods-protocol.md) 动态登记目标；案例必须依赖实际 accepted 的方法候选及定义、知识章节。基础场景可在创作者回答足够具体时忠实记录，其 data.capture=faithful_user_answer 仅用于刚回答的对应 M 目标，必须引用本轮精确原话，正文不能新增条件、顺序或推断。新增推导应走正常展示、下一轮确认。E 场景必须依赖对应的已确认 M 场景；每次只变一个条件，无须等待其他独立基础案例。五章的 data.methodConclusion 由程序绑定当前收口记录，宿主不能拿旧章确认新的收口范围。
 
 ## service.blueprint 的 data
 

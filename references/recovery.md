@@ -1,6 +1,6 @@
 # 中断与恢复
 
-此文件说明 Buddy Creator Skill 1.3.0 的 Python 项目恢复范围；不使用旧版 sessionId、workToken、LangGraph 检查点或 Node 启动器。
+此文件说明 Buddy Creator Skill 1.5.0 的 Python 项目恢复范围；不使用旧版 sessionId、workToken、LangGraph 检查点或 Node 启动器。
 
 | 情况 | 处理方式 |
 | --- | --- |
